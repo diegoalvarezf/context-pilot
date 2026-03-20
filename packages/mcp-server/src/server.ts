@@ -63,7 +63,7 @@ export function createServer(db: Database.Database, projectPath: string): McpSer
     "Get the dependency graph around a file or function. Useful for understanding the impact of changes.",
     getGraphSchema.shape,
     async ({ target, depth, direction }) => {
-      const result = await handleGetGraph({ target, depth, direction });
+      const result = await handleGetGraph({ target, depth, direction }, bridge, projectPath);
       return { content: [{ type: "text", text: result }] };
     }
   );

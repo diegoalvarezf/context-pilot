@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PythonBridge } from "../bridge/python-bridge.js";
 
 export const getGraphSchema = z.object({
   target: z.string().describe("File path or function name"),
@@ -8,12 +9,16 @@ export const getGraphSchema = z.object({
 
 export type GetGraphInput = z.infer<typeof getGraphSchema>;
 
-export async function handleGetGraph(input: GetGraphInput): Promise<string> {
-  // TODO Phase 3: query knowledge graph from Python engine
-  return JSON.stringify({
+export async function handleGetGraph(
+  input: GetGraphInput,
+  bridge: PythonBridge,
+  projectPath: string
+): Promise<string> {
+  const result = await bridge.call("graph", {
     target: input.target,
-    nodes: [],
-    edges: [],
-    message: "Knowledge graph not yet available. Coming in Phase 3.",
+    project_path: projectPath,
+    depth: input.depth ?? 2,
+    direction: input.direction ?? "both",
   });
+  return JSON.stringify(result);
 }

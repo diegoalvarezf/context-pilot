@@ -31,6 +31,7 @@ from storage import (
 from indexer import discover_files, index_file
 from embedder import embed_texts, embed_single, DEFAULT_MODEL
 from search import semantic_search
+from graph import build_graph, get_subgraph, get_graph_distances, find_chunk_by_name_or_path
 
 DB_PATH = str(Path.home() / ".context-pilot" / "db.sqlite")
 _db = None
@@ -159,10 +160,55 @@ def handle_status(params: dict) -> dict:
     }
 
 
+_graph_cache: dict[str, object] = {}  # project_id -> nx.DiGraph
+
+
+def handle_graph(params: dict) -> dict:
+    target = params.get("target", "")
+    project_path = params.get("project_path", os.getcwd())
+    depth = params.get("depth", 2)
+    direction = params.get("direction", "both")
+
+    root = Path(project_path).resolve()
+    project_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(root)))
+    db = get_db()
+
+    if project_id not in _graph_cache:
+        _graph_cache[project_id] = build_graph(db, project_id)
+
+    G = _graph_cache[project_id]
+    chunk_id = find_chunk_by_name_or_path(db, project_id, target)
+
+    if not chunk_id:
+        return {"nodes": [], "edges": [], "error": f"Target not found: {target}"}
+
+    return get_subgraph(G, chunk_id, depth=depth, direction=direction)
+
+
+def handle_graph_distances(params: dict) -> dict:
+    """Internal method used by TypeScript ranker."""
+    project_path = params.get("project_path", os.getcwd())
+    active_chunk_id = params.get("active_chunk_id", "")
+    candidate_ids = params.get("candidate_ids", [])
+
+    root = Path(project_path).resolve()
+    project_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(root)))
+
+    if project_id not in _graph_cache:
+        db = get_db()
+        _graph_cache[project_id] = build_graph(db, project_id)
+
+    G = _graph_cache[project_id]
+    distances = get_graph_distances(G, active_chunk_id, candidate_ids)
+    return {"distances": distances}
+
+
 HANDLERS = {
     "index": handle_index,
     "search": handle_search,
     "status": handle_status,
+    "graph": handle_graph,
+    "graph_distances": handle_graph_distances,
 }
 
 

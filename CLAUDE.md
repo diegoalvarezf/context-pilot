@@ -45,7 +45,7 @@ Content-Length: N\r\n\r\n{"id":1,"method":"search","params":{...}}
 Python methods: `index`, `search`, `status`, `graph` (Phase 3)
 
 ## Current phase
-Phase 3 — Knowledge graph (networkx) + intelligent ranking
+Phase 4 — CLI commands (init, status, serve)
 
 ## Commands
 ```bash
