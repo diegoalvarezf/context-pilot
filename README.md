@@ -51,7 +51,7 @@ There's no universal layer that manages **what context to inject, when, and in w
 
 ```bash
 # 1. Clone and setup
-git clone https://github.com/sallyheller/context-pilot.git
+git clone https://github.com/diegoalvarezf/context-pilot.git
 cd context-pilot
 bash scripts/setup.sh
 
