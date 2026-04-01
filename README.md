@@ -4,13 +4,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
-[![Status: WIP](https://img.shields.io/badge/status-work--in--progress-orange)]()
+[![Status: Beta](https://img.shields.io/badge/status-beta-orange)]()
 
 ---
 
 ## The Problem
 
-When using Claude Code, Cursor, or any AI coding agent with local LLMs (Ollama, LM Studio), context fills up fast. The agent "forgets" important parts of your codebase, injects irrelevant snippets, and loses architectural decisions across sessions.
+When using Claude Code, Cursor, or any AI coding agent, context fills up fast. The agent "forgets" important parts of your codebase, injects irrelevant snippets, and loses architectural decisions across sessions.
 
 There's no universal layer that manages **what context to inject, when, and in what format**.
 
@@ -21,20 +21,19 @@ There's no universal layer that manages **what context to inject, when, and in w
 - Builds a **local knowledge graph** of your project (files, functions, dependencies, architectural decisions)
 - **Dynamically selects** the most relevant context fragments for each prompt using local embeddings
 - Works as a **universal MCP server** — connects to any compatible client (Claude Code, Cursor, Continue.dev...)
-- **Persistent memory** across sessions with local embeddings — nothing leaves your machine
+- **Persistent memory** across sessions — nothing leaves your machine
 
 ```
-┌─────────────┐     MCP      ┌──────────────────┐     IPC      ┌─────────────────┐
-│  AI Client  │◄────────────►│  context-pilot   │◄────────────►│ Embedding Engine│
-│(Claude Code)│              │   MCP Server     │              │    (Python)     │
-└─────────────┘              └──────────────────┘              └─────────────────┘
-                                      │                                  │
-                                      └──────────┬───────────────────────┘
-                                                 ▼
-                                        ┌────────────────┐
-                                        │  SQLite DB     │
-                                        │  (local only)  │
-                                        └────────────────┘
+┌─────────────┐     MCP      ┌──────────────────────────────────┐
+│  AI Client  │◄────────────►│         context-pilot            │
+│(Claude Code)│              │  MCP Server + Embedding Engine   │
+└─────────────┘              │  (TypeScript, 100% local)        │
+                             └──────────────┬───────────────────┘
+                                            ▼
+                                   ┌────────────────┐
+                                   │  SQLite DB     │
+                                   │  (local only)  │
+                                   └────────────────┘
 ```
 
 ## MCP Tools
@@ -49,11 +48,14 @@ There's no universal layer that manages **what context to inject, when, and in w
 
 ## Quick Start
 
+**Requirements:** Node.js 22+. No Python. No native dependencies.
+
 ```bash
-# 1. Clone and setup
+# 1. Clone and install
 git clone https://github.com/diegoalvarezf/context-pilot.git
 cd context-pilot
-bash scripts/setup.sh
+pnpm install
+pnpm build
 
 # 2. Initialize in your project
 cd /path/to/your-project
@@ -69,11 +71,14 @@ claude mcp add context-pilot -- context-pilot serve --project . --watch
 context-pilot status
 ```
 
+> First `index` run downloads the embedding model (~90MB, cached to `~/.context-pilot/models`).
+
 ## Stack
 
-- **TypeScript/Node.js** — MCP server, CLI, protocol handling
-- **Python** — Embeddings (`sentence-transformers/all-MiniLM-L6-v2`), knowledge graph (`networkx`), code parsing (`tree-sitter`)
-- **SQLite** — Local persistence, no external databases
+- **TypeScript/Node.js 22** — MCP server, CLI, embeddings, code parsing, graph — everything
+- **`node:sqlite`** — built-in SQLite, zero native compilation
+- **`@huggingface/transformers`** — local ONNX embeddings (`all-MiniLM-L6-v2`, 384 dims)
+- **`web-tree-sitter`** — WASM-based code parsing, no node-gyp
 
 ## Supported Languages
 
@@ -84,14 +89,14 @@ context-pilot status
 
 ## Roadmap
 
-- [x] Project architecture
 - [x] MCP server with 5 tools
-- [x] Embedding engine (tree-sitter + sentence-transformers)
-- [x] Knowledge graph (networkx)
+- [x] TypeScript-native embedding engine (no Python required)
+- [x] Knowledge graph with dependency edges
 - [x] Intelligent context ranking (semantic + graph + recency)
 - [x] CLI (`init`, `index`, `status`, `serve`)
 - [x] Incremental indexing + file watcher (`--watch`)
-- [x] FAISS support for large projects (auto, >500 chunks)
+- [ ] VSCode extension (zero-config install)
+- [ ] Go / Rust language support
 
 ## Contributing
 
