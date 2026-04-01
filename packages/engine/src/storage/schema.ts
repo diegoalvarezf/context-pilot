@@ -1,12 +1,7 @@
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 
-export function applySchema(db: Database.Database): void {
+export function applySchema(db: DatabaseSync): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version   INTEGER PRIMARY KEY,
-      applied_at INTEGER NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS projects (
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,
@@ -38,6 +33,23 @@ export function applySchema(db: Database.Database): void {
       metadata    TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS embeddings (
+      chunk_id   TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+      model      TEXT NOT NULL,
+      vector     BLOB NOT NULL,
+      dims       INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      from_chunk TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+      to_chunk   TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+      edge_type  TEXT NOT NULL,
+      weight     REAL DEFAULT 1.0
+    );
+
     CREATE TABLE IF NOT EXISTS memories (
       id              TEXT PRIMARY KEY,
       project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -49,8 +61,11 @@ export function applySchema(db: Database.Database): void {
       expires_at      INTEGER
     );
 
-    CREATE INDEX IF NOT EXISTS idx_chunks_file    ON chunks(file_id);
-    CREATE INDEX IF NOT EXISTS idx_files_project  ON files(project_id);
-    CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_chunks_file       ON chunks(file_id);
+    CREATE INDEX IF NOT EXISTS idx_files_project     ON files(project_id);
+    CREATE INDEX IF NOT EXISTS idx_embeddings_chunk  ON embeddings(chunk_id);
+    CREATE INDEX IF NOT EXISTS idx_graph_from        ON graph_edges(from_chunk);
+    CREATE INDEX IF NOT EXISTS idx_graph_project     ON graph_edges(project_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_project  ON memories(project_id, created_at DESC);
   `);
 }

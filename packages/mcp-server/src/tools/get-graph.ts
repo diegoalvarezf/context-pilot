@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PythonBridge } from "../bridge/python-bridge.js";
+import type { IContextEngine } from "@context-pilot/engine";
 
 export const getGraphSchema = z.object({
   target: z.string().describe("File path or function name"),
@@ -11,12 +11,12 @@ export type GetGraphInput = z.infer<typeof getGraphSchema>;
 
 export async function handleGetGraph(
   input: GetGraphInput,
-  bridge: PythonBridge,
+  engine: IContextEngine,
   projectPath: string
 ): Promise<string> {
-  const result = await bridge.call("graph", {
+  const result = await engine.graph({
     target: input.target,
-    project_path: projectPath,
+    projectPath,
     depth: input.depth ?? 2,
     direction: input.direction ?? "both",
   });

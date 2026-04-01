@@ -2,6 +2,7 @@
   "name": "@context-pilot/cli",
   "version": "0.1.0",
   "description": "CLI for context-pilot",
+  "type": "module",
   "bin": {
     "context-pilot": "dist/index.js"
   },
@@ -12,7 +13,9 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@context-pilot/engine": "workspace:*",
     "@context-pilot/mcp-server": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "commander": "^12.0.0",
     "chalk": "^5.3.0",
     "ora": "^8.0.0",

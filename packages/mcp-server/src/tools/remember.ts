@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { randomUUID } from "crypto";
-import type Database from "better-sqlite3";
+import type { IContextEngine } from "@context-pilot/engine";
 
 export const rememberSchema = z.object({
   content: z.string().describe("The decision or note to remember"),
@@ -10,19 +9,17 @@ export const rememberSchema = z.object({
 
 export type RememberInput = z.infer<typeof rememberSchema>;
 
-export function handleRemember(
-  db: Database.Database,
-  projectId: string,
+export async function handleRemember(
+  engine: IContextEngine,
+  projectPath: string,
   sessionId: string,
   input: RememberInput
-): string {
-  const id = randomUUID();
-  const now = Date.now();
-
-  db.prepare(`
-    INSERT INTO memories (id, project_id, session_id, memory_type, content, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, projectId, sessionId, input.memory_type, input.content, now);
-
-  return JSON.stringify({ success: true, id, memory_type: input.memory_type });
+): Promise<string> {
+  const result = await engine.remember({
+    projectPath,
+    sessionId,
+    memoryType: input.memory_type,
+    content: input.content,
+  });
+  return JSON.stringify({ ...result, memory_type: input.memory_type });
 }

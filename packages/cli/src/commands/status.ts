@@ -2,16 +2,7 @@ import { Command } from "commander";
 import { resolve } from "path";
 import chalk from "chalk";
 import ora from "ora";
-import { PythonBridge } from "@context-pilot/mcp-server/bridge/python-bridge.js";
-
-interface StatusResult {
-  indexed: boolean;
-  project_path?: string;
-  project_id?: string;
-  files?: number;
-  chunks?: number;
-  indexed_at?: number;
-}
+import { ContextEngine } from "@context-pilot/engine";
 
 export const statusCommand = new Command("status")
   .description("Show indexing status for a project")
@@ -20,11 +11,10 @@ export const statusCommand = new Command("status")
     const root = resolve(projectPath);
     const spinner = ora("Checking status...").start();
 
-    const bridge = new PythonBridge();
-    bridge.start();
+    const engine = new ContextEngine();
 
     try {
-      const result = await bridge.call<StatusResult>("status", { project_path: root });
+      const result = await engine.status({ projectPath: root });
       spinner.stop();
 
       if (!result.indexed) {
@@ -33,8 +23,8 @@ export const statusCommand = new Command("status")
         return;
       }
 
-      const indexedAt = result.indexed_at
-        ? new Date(result.indexed_at * 1000).toLocaleString()
+      const indexedAt = result.indexedAt
+        ? new Date(result.indexedAt).toLocaleString()
         : "unknown";
 
       console.log("");
@@ -49,6 +39,6 @@ export const statusCommand = new Command("status")
       console.log("  " + chalk.dim("Last indexed:   ") + chalk.white(indexedAt));
       console.log("");
     } finally {
-      bridge.stop();
+      engine.close();
     }
   });

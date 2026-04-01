@@ -1,12 +1,12 @@
 import { watch } from "chokidar";
 import { resolve } from "path";
-import type { PythonBridge } from "@context-pilot/mcp-server/bridge/python-bridge.js";
+import type { IContextEngine } from "@context-pilot/engine";
 
 const DEBOUNCE_MS = 1500;
 const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py"]);
 const IGNORED = /node_modules|\.git|__pycache__|dist|build|\.context-pilot/;
 
-export function startWatcher(projectPath: string, bridge: PythonBridge): void {
+export function startWatcher(projectPath: string, engine: IContextEngine): void {
   const root = resolve(projectPath);
   let debounceTimer: NodeJS.Timeout | null = null;
   const changedFiles = new Set<string>();
@@ -31,7 +31,7 @@ export function startWatcher(projectPath: string, bridge: PythonBridge): void {
         `[context-pilot] re-indexing ${files.length} changed file(s)...\n`
       );
       try {
-        await bridge.call("index", { project_path: root, force: false });
+        await engine.index({ projectPath: root, force: false });
         process.stderr.write("[context-pilot] re-index complete\n");
       } catch (err) {
         process.stderr.write(`[context-pilot] re-index failed: ${err}\n`);

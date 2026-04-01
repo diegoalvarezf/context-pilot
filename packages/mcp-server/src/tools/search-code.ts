@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PythonBridge } from "../bridge/python-bridge.js";
+import type { IContextEngine } from "@context-pilot/engine";
 
 export const searchCodeSchema = z.object({
   query: z.string().describe("Semantic search query"),
@@ -11,14 +11,14 @@ export type SearchCodeInput = z.infer<typeof searchCodeSchema>;
 
 export async function handleSearchCode(
   input: SearchCodeInput,
-  bridge: PythonBridge,
+  engine: IContextEngine,
   projectPath: string
 ): Promise<string> {
-  const result = await bridge.call("search", {
+  const result = await engine.search({
     query: input.query,
-    project_path: projectPath,
+    projectPath,
     k: input.k ?? 10,
-    filter_type: input.filter_type ?? "any",
+    filterType: input.filter_type ?? "any",
   });
   return JSON.stringify(result);
 }

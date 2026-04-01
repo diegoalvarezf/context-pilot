@@ -2,16 +2,7 @@ import { Command } from "commander";
 import { resolve } from "path";
 import chalk from "chalk";
 import ora from "ora";
-import { PythonBridge } from "@context-pilot/mcp-server/bridge/python-bridge.js";
-
-interface IndexResult {
-  success: boolean;
-  project_path?: string;
-  files_indexed?: number;
-  files_skipped?: number;
-  total_files?: number;
-  error?: string;
-}
+import { ContextEngine } from "@context-pilot/engine";
 
 export const indexCommand = new Command("index")
   .description("Index or re-index the project codebase")
@@ -21,14 +12,11 @@ export const indexCommand = new Command("index")
     const root = resolve(projectPath);
     const spinner = ora(`Indexing ${chalk.cyan(root)}...`).start();
 
-    const bridge = new PythonBridge();
-    bridge.start();
+    const engine = new ContextEngine();
 
     try {
-      const result = await bridge.call<IndexResult>("index", {
-        project_path: root,
-        force: options.force,
-      });
+      await engine.init();
+      const result = await engine.index({ projectPath: root, force: options.force });
 
       if (!result.success) {
         spinner.fail(chalk.red("Indexing failed: ") + (result.error ?? "unknown error"));
@@ -38,14 +26,14 @@ export const indexCommand = new Command("index")
       spinner.succeed(chalk.green("Indexing complete"));
       console.log("");
       console.log(
-        "  " + chalk.dim("Files indexed:  ") + chalk.white(result.files_indexed?.toLocaleString())
+        "  " + chalk.dim("Files indexed:  ") + chalk.white(result.filesIndexed.toLocaleString())
       );
       console.log(
         "  " + chalk.dim("Files skipped:  ") +
-          chalk.dim(result.files_skipped?.toLocaleString() + " (unchanged)")
+          chalk.dim(result.filesSkipped.toLocaleString() + " (unchanged)")
       );
       console.log(
-        "  " + chalk.dim("Total files:    ") + chalk.white(result.total_files?.toLocaleString())
+        "  " + chalk.dim("Total files:    ") + chalk.white(result.totalFiles.toLocaleString())
       );
       console.log("");
       console.log(
@@ -56,6 +44,6 @@ export const indexCommand = new Command("index")
     } catch (err) {
       spinner.fail(chalk.red("Error: ") + String(err));
     } finally {
-      bridge.stop();
+      engine.close();
     }
   });

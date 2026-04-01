@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PythonBridge } from "../bridge/python-bridge.js";
+import type { IContextEngine } from "@context-pilot/engine";
 import { rankCandidates, normalizeRecency, type Candidate } from "../context/ranker.js";
 
 export const queryContextSchema = z.object({
@@ -14,58 +14,57 @@ export const queryContextSchema = z.object({
 
 export type QueryContextInput = z.infer<typeof queryContextSchema>;
 
-interface SearchResult {
-  chunk_id: string;
-  score: number;
-  content: string;
-  chunk_type: string;
-  name: string | null;
-  path: string;
-  start_line: number;
-  end_line: number;
-}
-
 export async function handleQueryContext(
   input: QueryContextInput,
-  bridge: PythonBridge,
+  engine: IContextEngine,
   projectPath: string
 ): Promise<string> {
-  const searchResponse = await bridge.call<{ results: SearchResult[]; message?: string }>(
-    "search",
-    {
-      query: input.prompt,
-      project_path: projectPath,
-      k: 20,
-      filter_type: "any",
-    }
-  );
+  const searchResponse = await engine.search({
+    query: input.prompt,
+    projectPath,
+    k: 20,
+  });
 
   if (!searchResponse.results?.length) {
     return JSON.stringify({
       context: "",
       sources: [],
       token_count: 0,
-      message: searchResponse.message ?? "No results. Index the project first with index_project.",
+      message: "No results. Index the project first with index_project.",
     });
   }
 
-  let candidates: Candidate[] = searchResponse.results.map((r) => ({ ...r }));
+  let candidates: Candidate[] = searchResponse.results.map((r) => ({
+    chunk_id: r.chunk_id,
+    score: r.score,
+    content: r.content,
+    chunk_type: r.chunk_type,
+    name: r.name,
+    path: r.path,
+    start_line: r.start_line,
+    end_line: r.end_line,
+  }));
 
   // If we know the active file, enrich with graph distances
   if (input.active_file) {
     try {
-      const distResponse = await bridge.call<{
-        distances: Record<string, number>;
-      }>("graph_distances", {
-        project_path: projectPath,
-        active_file: input.active_file,
-        candidate_ids: candidates.map((c) => c.chunk_id),
-      });
+      // Find a chunk from the active file to use as the anchor node
+      const anchor = candidates.find((c) =>
+        c.path === input.active_file || c.path.endsWith("/" + input.active_file)
+      );
 
-      candidates = candidates.map((c) => ({
-        ...c,
-        graph_distance: distResponse.distances[c.chunk_id] ?? 0.5,
-      }));
+      if (anchor) {
+        const distResponse = await engine.graphDistances({
+          projectPath,
+          activeChunkId: anchor.chunk_id,
+          candidateIds: candidates.map((c) => c.chunk_id),
+        });
+
+        candidates = candidates.map((c) => ({
+          ...c,
+          graph_distance: distResponse.distances[c.chunk_id] ?? 0.5,
+        }));
+      }
     } catch {
       // graph not available yet — skip distance enrichment
     }
