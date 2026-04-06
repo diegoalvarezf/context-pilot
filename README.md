@@ -116,8 +116,12 @@ context-pilot init
 context-pilot index
 # First run downloads the embedding model (~90MB, cached to ~/.context-pilot/models)
 
-# 5. Check what was indexed
-context-pilot status
+# 5. Open the visual UI
+context-pilot ui
+# → http://localhost:4321
+
+# 6. Or serve the MCP server directly
+context-pilot serve --watch
 ```
 
 > The watcher keeps the index live as you code — no need to re-index manually.
@@ -182,6 +186,22 @@ Add to your Zed settings:
     }
   }
 }
+```
+
+---
+
+## Visual UI
+
+Run `context-pilot ui` to open a local dashboard at `http://localhost:4321`:
+
+- **Graph** — interactive import graph of your codebase. Nodes sized by complexity, colored by language. Click any file to see its co-edit relationships.
+- **Search** — semantic search over your codebase with the same 4-signal ranking used by the MCP tools.
+- **Memories** — browse, create, and delete architectural decisions. Memories are embedded and retrieved semantically alongside code context.
+- **Status** — files indexed, chunks, memories count, graph edges, last indexed time.
+
+```
+context-pilot ui               # default port 4321
+context-pilot ui --port 8080   # custom port
 ```
 
 ---
@@ -274,6 +294,7 @@ Zero Python. Zero Docker. Zero native modules that break on CI.
 - [x] CLI (`init`, `index`, `status`, `serve`)
 - [x] Incremental indexing + file watcher (`--watch`)
 - [x] Co-edit signal — files historically edited together are boosted in ranking
+- [x] Visual UI — `context-pilot ui` opens a local dashboard (graph, search, memories, status)
 - [ ] VSCode extension (zero-config install)
 - [ ] Go / Rust language support
 

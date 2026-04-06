@@ -42,6 +42,15 @@ export interface MemorySearchResult {
   created_at: number;
 }
 
+export interface MemoryRecord {
+  id: string;
+  memory_type: string;
+  content: string;
+  session_id: string | null;
+  relevance_score: number;
+  created_at: number;
+}
+
 export interface GraphNode {
   id: string;
   chunkType: string;
@@ -118,5 +127,11 @@ export interface IContextEngine {
     activeFilePath: string;
     candidatePaths: string[];
   }): Record<string, number>;
+  getFileGraph(params: { projectPath: string }): Promise<{
+    nodes: Array<{ id: string; path: string; language: string; chunkCount: number }>;
+    edges: Array<{ from: string; to: string }>;
+  }>;
+  listMemories(params: { projectPath: string }): Promise<{ memories: MemoryRecord[] }>;
+  deleteMemory(params: { projectPath: string; memoryId: string }): Promise<{ success: boolean }>;
   close(): void;
 }

@@ -278,6 +278,68 @@ export class ContextEngine implements IContextEngine {
     return getCoEditScores(this.db, pid, params.activeFilePath, params.candidatePaths);
   }
 
+  async getFileGraph(params: { projectPath: string }): Promise<{
+    nodes: Array<{ id: string; path: string; language: string; chunkCount: number }>;
+    edges: Array<{ from: string; to: string }>;
+  }> {
+    const pid = projectId(params.projectPath);
+
+    const files = this.db.prepare(`
+      SELECT f.id, f.path, COALESCE(f.language, 'unknown') as language, COUNT(c.id) as chunk_count
+      FROM files f
+      LEFT JOIN chunks c ON c.file_id = f.id
+      WHERE f.project_id = ?
+      GROUP BY f.id
+      ORDER BY chunk_count DESC
+      LIMIT 400
+    `).all(pid) as Array<{ id: string; path: string; language: string; chunk_count: number }>;
+
+    const edges = this.db.prepare(`
+      SELECT DISTINCT f1.id AS from_file, f2.id AS to_file
+      FROM graph_edges ge
+      JOIN chunks c1 ON c1.id = ge.from_chunk
+      JOIN files f1 ON f1.id = c1.file_id
+      JOIN chunks c2 ON c2.id = ge.to_chunk
+      JOIN files f2 ON f2.id = c2.file_id
+      WHERE f1.project_id = ? AND f1.id != f2.id
+    `).all(pid) as Array<{ from_file: string; to_file: string }>;
+
+    // Only include edges where both nodes are in our limited node set
+    const nodeIds = new Set(files.map((f) => f.id));
+    const filteredEdges = edges.filter(
+      (e) => nodeIds.has(e.from_file) && nodeIds.has(e.to_file)
+    );
+
+    return {
+      nodes: files.map((f) => ({
+        id: f.id,
+        path: f.path,
+        language: f.language,
+        chunkCount: f.chunk_count,
+      })),
+      edges: filteredEdges.map((e) => ({ from: e.from_file, to: e.to_file })),
+    };
+  }
+
+  async listMemories(params: { projectPath: string }): Promise<{ memories: import("./types.js").MemoryRecord[] }> {
+    const pid = projectId(params.projectPath);
+    const memories = this.db.prepare(`
+      SELECT id, memory_type, content, session_id, relevance_score, created_at
+      FROM memories
+      WHERE project_id = ?
+      ORDER BY created_at DESC
+    `).all(pid) as unknown as import("./types.js").MemoryRecord[];
+    return { memories };
+  }
+
+  async deleteMemory(params: { projectPath: string; memoryId: string }): Promise<{ success: boolean }> {
+    const pid = projectId(params.projectPath);
+    const result = this.db
+      .prepare(`DELETE FROM memories WHERE id = ? AND project_id = ?`)
+      .run(params.memoryId, pid) as { changes: number };
+    return { success: result.changes > 0 };
+  }
+
   close(): void {
     this.db.close();
   }
