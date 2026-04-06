@@ -1,106 +1,282 @@
-# context-pilot 🧠
+# context-pilot
 
-> Intelligent context middleware for AI coding agents. MCP-compatible, 100% local, privacy-first.
+> Intelligent context middleware for AI coding agents.
+> MCP-compatible · 100% local · privacy-first · no Python
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
+[![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![Status: Beta](https://img.shields.io/badge/status-beta-orange)]()
+
+**Works with:** Claude Code · Cursor · Continue.dev · Zed · any MCP client
 
 ---
 
-## The Problem
+## The problem
 
-When using Claude Code, Cursor, or any AI coding agent, context fills up fast. The agent "forgets" important parts of your codebase, injects irrelevant snippets, and loses architectural decisions across sessions.
+Every AI coding agent has the same blind spot: **context is dumb**.
 
-There's no universal layer that manages **what context to inject, when, and in what format**.
+It injects whichever files are open, grabs the top-N semantic matches, and forgets everything the moment the session ends. It doesn't know that `auth.ts` and `middleware.ts` are always edited together. It doesn't remember that you decided *not* to use Redis three months ago. It has no idea that the function you're editing is called by 12 other files.
 
-## The Solution
+There's no layer that manages **what context to inject, when, and why**.
 
-**context-pilot** is a middleware [MCP server](https://modelcontextprotocol.io) that sits between your AI client and your codebase:
+## The solution
 
-- Builds a **local knowledge graph** of your project (files, functions, dependencies, architectural decisions)
-- **Dynamically selects** the most relevant context fragments for each prompt using local embeddings
-- Works as a **universal MCP server** — connects to any compatible client (Claude Code, Cursor, Continue.dev...)
-- **Persistent memory** across sessions — nothing leaves your machine
+**context-pilot** is a middleware MCP server that sits between your AI client and your codebase. It builds a local knowledge graph of your project and uses three signals at once to decide what context is actually relevant:
 
 ```
-┌─────────────┐     MCP      ┌──────────────────────────────────┐
-│  AI Client  │◄────────────►│         context-pilot            │
-│(Claude Code)│              │  MCP Server + Embedding Engine   │
-└─────────────┘              │  (TypeScript, 100% local)        │
-                             └──────────────┬───────────────────┘
-                                            ▼
-                                   ┌────────────────┐
-                                   │  SQLite DB     │
-                                   │  (local only)  │
-                                   └────────────────┘
+┌──────────────┐     MCP      ┌─────────────────────────────────────────┐
+│  AI Client   │◄────────────►│              context-pilot              │
+│ (Claude Code,│              │                                         │
+│  Cursor, ...) │             │  ┌──────────┐ ┌────────┐ ┌──────────┐  │
+└──────────────┘              │  │ Semantic │+│ Graph  │+│ Recency  │  │
+                              │  │ search   │ │ signal │ │ signal   │  │
+                              │  └──────────┘ └────────┘ └──────────┘  │
+                              │         embedding engine                │
+                              └───────────────────┬─────────────────────┘
+                                                  ▼
+                                       ┌──────────────────┐
+                                       │  ~/.context-pilot │
+                                       │  db.sqlite        │
+                                       │  (local only)     │
+                                       └──────────────────┘
 ```
 
-## MCP Tools
+**Semantic search** finds code similar to your prompt. **Graph signal** boosts results that are close to your active file in the import graph. **Recency** boosts files you've touched recently. The three combine into a single ranked list.
 
-| Tool | Description |
-|------|-------------|
-| `query_context` | Get the most relevant context for your current task |
-| `index_project` | Index or re-index your codebase |
-| `remember` | Persist architectural decisions across sessions |
-| `get_graph` | Explore dependency graphs around a file or function |
-| `search_code` | Semantic search across your codebase |
+Plus: every architectural decision you tell it to remember is embedded and retrieved semantically — your past choices inform future answers.
 
-## Quick Start
+---
 
-**Requirements:** Node.js 22+. No Python. No native dependencies.
+## Demo
+
+### Before context-pilot
+
+```
+You: "Add rate limiting to the payment endpoint"
+
+Agent grabs: package.json, the 3 most-recently opened files, and a generic
+rate-limiter example from a completely different part of the codebase.
+
+Result: generic boilerplate, wrong import paths, misses that you already
+have a rate limiter in src/lib/rate-limit.ts.
+```
+
+### With context-pilot
+
+```
+You: "Add rate limiting to the payment endpoint"
+
+query_context runs → ranks 20 candidates using semantic + graph + recency
+
+Returns:
+  src/lib/rate-limit.ts:1-45      (score: 0.94) ← your existing rate limiter
+  src/routes/payments.ts:1-82     (score: 0.91) ← the endpoint itself
+  src/middleware/auth.ts:12-34    (score: 0.78) ← used in the same route
+  [decision] "Use in-memory rate limiter, Redis rejected (2024-11) — 
+              adds infra dependency for marginal gain"  (score: 0.81)
+
+Result: agent reuses your existing implementation, follows your past decision,
+correct imports on the first try.
+```
+
+### `context-pilot status`
+
+```
+$ context-pilot status
+
+  project   my-api  (/Users/me/repos/my-api)
+  indexed   2 minutes ago
+  files     847
+  chunks    3,241
+  memories  12 architectural decisions stored
+  graph     4,102 import edges
+```
+
+---
+
+## Quick start
+
+**Requirements:** Node.js 22+. No Python. No Docker. No native compilation.
 
 ```bash
-# 1. Clone and install
+# 1. Clone and build
 git clone https://github.com/diegoalvarezf/context-pilot.git
 cd context-pilot
-pnpm install
-pnpm build
+pnpm install && pnpm build
 
-# 2. Initialize in your project
+# 2. Link the CLI globally
+npm link packages/cli
+
+# 3. Go to your project
 cd /path/to/your-project
+
+# 4. Initialize and index
 context-pilot init
-
-# 3. Index your codebase
 context-pilot index
+# First run downloads the embedding model (~90MB, cached to ~/.context-pilot/models)
 
-# 4. Add to Claude Code
-claude mcp add context-pilot -- context-pilot serve --project . --watch
-
-# 5. Check status anytime
+# 5. Check what was indexed
 context-pilot status
 ```
 
-> First `index` run downloads the embedding model (~90MB, cached to `~/.context-pilot/models`).
+> The watcher keeps the index live as you code — no need to re-index manually.
+
+---
+
+## Add to your AI client
+
+### Claude Code
+
+```bash
+claude mcp add context-pilot -- context-pilot serve --project . --watch
+```
+
+### Cursor
+
+Add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "context-pilot": {
+      "command": "context-pilot",
+      "args": ["serve", "--project", ".", "--watch"]
+    }
+  }
+}
+```
+
+### Continue.dev
+
+Add to `~/.continue/config.json`:
+
+```json
+{
+  "experimental": {
+    "modelContextProtocolServers": [
+      {
+        "transport": {
+          "type": "stdio",
+          "command": "context-pilot",
+          "args": ["serve", "--project", ".", "--watch"]
+        }
+      }
+    ]
+  }
+}
+```
+
+### Zed
+
+Add to your Zed settings:
+
+```json
+{
+  "context_servers": {
+    "context-pilot": {
+      "command": {
+        "path": "context-pilot",
+        "args": ["serve", "--project", ".", "--watch"]
+      }
+    }
+  }
+}
+```
+
+---
+
+## MCP Tools
+
+| Tool | When to use |
+|------|-------------|
+| `query_context` | Before writing code — get relevant functions, patterns, and past decisions |
+| `index_project` | After cloning or after large refactors |
+| `remember` | Save an architectural decision so it persists across sessions |
+| `get_graph` | Understand the blast radius of a change — who calls this function? |
+| `search_code` | Semantic search when you know what you're looking for |
+
+### `query_context` response shape
+
+```json
+{
+  "context": "// src/lib/rate-limit.ts:1-45 (createRateLimiter)\nfunction createRateLimiter...",
+  "sources": [
+    { "path": "src/lib/rate-limit.ts", "name": "createRateLimiter", "lines": "1-45", "score": 0.94 },
+    { "path": "src/routes/payments.ts", "name": null, "lines": "1-82", "score": 0.91 }
+  ],
+  "memories": [
+    {
+      "id": "abc123",
+      "memory_type": "decision",
+      "content": "Use in-memory rate limiter. Redis rejected — adds infra dependency for marginal gain.",
+      "score": 0.81
+    }
+  ],
+  "token_count": 1842
+}
+```
+
+Code context and architectural memories in one call.
+
+---
+
+## How ranking works
+
+```
+final_score = 0.60 × semantic_similarity
+            + 0.25 × graph_proximity      ← how close to your active file in the import graph
+            + 0.15 × recency              ← how recently the file was modified
+```
+
+The graph is built automatically from import statements during indexing. No config needed.
+
+---
 
 ## Stack
 
-- **TypeScript/Node.js 22** — MCP server, CLI, embeddings, code parsing, graph — everything
-- **`node:sqlite`** — built-in SQLite, zero native compilation
-- **`@huggingface/transformers`** — local ONNX embeddings (`all-MiniLM-L6-v2`, 384 dims)
-- **`web-tree-sitter`** — WASM-based code parsing, no node-gyp
+| Layer | Technology |
+|-------|-----------|
+| MCP server | `@modelcontextprotocol/sdk` |
+| Embeddings | `@huggingface/transformers` — ONNX, local, `all-MiniLM-L6-v2` (384 dims) |
+| Code parsing | `web-tree-sitter` — WASM, no node-gyp |
+| Storage | `node:sqlite` — built-in Node.js 22, zero native compilation |
+| Runtime | TypeScript / Node.js 22 — everything in one language |
 
-## Supported Languages
+Zero Python. Zero Docker. Zero native modules that break on CI.
 
-- TypeScript / JavaScript
-- Python
-- Go *(planned)*
-- Rust *(planned)*
+---
+
+## Supported languages
+
+| Language | Status |
+|----------|--------|
+| TypeScript / TSX | Supported |
+| JavaScript / JSX | Supported |
+| Python | Supported |
+| Go | Planned |
+| Rust | Planned |
+
+---
 
 ## Roadmap
 
 - [x] MCP server with 5 tools
 - [x] TypeScript-native embedding engine (no Python required)
-- [x] Knowledge graph with dependency edges
-- [x] Intelligent context ranking (semantic + graph + recency)
+- [x] Import graph — built from source during indexing
+- [x] Ranking: semantic + graph proximity + recency
+- [x] Semantic memory — architectural decisions embedded and retrieved
 - [x] CLI (`init`, `index`, `status`, `serve`)
 - [x] Incremental indexing + file watcher (`--watch`)
 - [ ] VSCode extension (zero-config install)
 - [ ] Go / Rust language support
+- [ ] Co-edit signal — boost files that are historically edited together
+
+---
 
 ## Contributing
 
-This project is in early development. Contributions, ideas, and feedback are welcome — open an issue!
+Early stage. Issues, ideas, and PRs are very welcome.
 
 ## License
 
