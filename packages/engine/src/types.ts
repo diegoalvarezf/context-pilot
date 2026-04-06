@@ -113,5 +113,10 @@ export interface IContextEngine {
     projectPath: string;
     k?: number;
   }): Promise<{ results: MemorySearchResult[] }>;
+  getCoEditScores(params: {
+    projectPath: string;
+    activeFilePath: string;
+    candidatePaths: string[];
+  }): Record<string, number>;
   close(): void;
 }

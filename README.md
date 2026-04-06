@@ -224,12 +224,17 @@ Code context and architectural memories in one call.
 ## How ranking works
 
 ```
-final_score = 0.60 × semantic_similarity
-            + 0.25 × graph_proximity      ← how close to your active file in the import graph
-            + 0.15 × recency              ← how recently the file was modified
+final_score = 0.55 × semantic_similarity
+            + 0.20 × graph_proximity      ← distance to active file in the import graph
+            + 0.15 × co-edit score        ← files historically changed in the same session
+            + 0.10 × recency              ← how recently the file was modified
 ```
 
-The graph is built automatically from import statements during indexing. No config needed.
+All signals are derived automatically — no config, no annotations.
+
+- **Graph** is built from import statements at index time
+- **Co-edit** is learned from your watcher sessions: every time files change together, their relationship strengthens
+- **Recency** comes from filesystem `mtime`
 
 ---
 
@@ -268,9 +273,9 @@ Zero Python. Zero Docker. Zero native modules that break on CI.
 - [x] Semantic memory — architectural decisions embedded and retrieved
 - [x] CLI (`init`, `index`, `status`, `serve`)
 - [x] Incremental indexing + file watcher (`--watch`)
+- [x] Co-edit signal — files historically edited together are boosted in ranking
 - [ ] VSCode extension (zero-config install)
 - [ ] Go / Rust language support
-- [ ] Co-edit signal — boost files that are historically edited together
 
 ---
 

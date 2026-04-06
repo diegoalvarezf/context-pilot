@@ -75,5 +75,18 @@ export function applySchema(db: DatabaseSync): void {
       dims       INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS file_coedits (
+      id         TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      file_a     TEXT NOT NULL,
+      file_b     TEXT NOT NULL,
+      count      INTEGER NOT NULL DEFAULT 1,
+      last_seen  INTEGER NOT NULL,
+      UNIQUE(project_id, file_a, file_b)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_coedits_a ON file_coedits(project_id, file_a);
+    CREATE INDEX IF NOT EXISTS idx_coedits_b ON file_coedits(project_id, file_b);
   `);
 }

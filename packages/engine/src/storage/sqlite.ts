@@ -272,6 +272,70 @@ export function getMemoryEmbeddings(
   }));
 }
 
+// ── Co-edit tracking ──────────────────────────────────────────────────────────
+
+/**
+ * Record that a set of files were edited in the same session window.
+ * Increments the co-edit count for every pair in the set.
+ */
+export function recordCoEdits(db: DatabaseSync, projectId: string, relPaths: string[]): void {
+  if (relPaths.length < 2) return;
+
+  const stmt = db.prepare(`
+    INSERT INTO file_coedits (id, project_id, file_a, file_b, count, last_seen)
+    VALUES (?, ?, ?, ?, 1, ?)
+    ON CONFLICT(project_id, file_a, file_b) DO UPDATE SET
+      count    = count + 1,
+      last_seen = excluded.last_seen
+  `);
+
+  const now = Date.now();
+  tx(db, () => {
+    for (let i = 0; i < relPaths.length; i++) {
+      for (let j = i + 1; j < relPaths.length; j++) {
+        // Store canonically sorted to avoid (A,B) and (B,A) duplicates
+        const [a, b] = [relPaths[i], relPaths[j]].sort();
+        stmt.run(`${projectId}:${a}:${b}`, projectId, a, b, now);
+      }
+    }
+  });
+}
+
+/**
+ * For a given active file, return normalized co-edit scores [0,1] for candidate paths.
+ * Score of 1 = always edited together with activeFilePath; 0 = never.
+ */
+export function getCoEditScores(
+  db: DatabaseSync,
+  projectId: string,
+  activeFilePath: string,
+  candidatePaths: string[]
+): Record<string, number> {
+  if (candidatePaths.length === 0) return {};
+
+  const rows = db.prepare(`
+    SELECT
+      CASE WHEN file_a = ? THEN file_b ELSE file_a END AS other_file,
+      count
+    FROM file_coedits
+    WHERE project_id = ? AND (file_a = ? OR file_b = ?)
+  `).all(activeFilePath, projectId, activeFilePath, activeFilePath) as Array<{
+    other_file: string;
+    count: number;
+  }>;
+
+  if (rows.length === 0) return {};
+
+  const maxCount = Math.max(...rows.map((r) => r.count));
+  const scoreMap = new Map(rows.map((r) => [r.other_file, r.count / maxCount]));
+
+  const result: Record<string, number> = {};
+  for (const path of candidatePaths) {
+    result[path] = scoreMap.get(path) ?? 0;
+  }
+  return result;
+}
+
 export function getChunksByIds(
   db: DatabaseSync,
   ids: string[]

@@ -57,11 +57,15 @@ export async function handleQueryContext(
     candidates = normalizeRecency(candidates, modifiedAtMap);
   }
 
-  // If we know the active file, enrich with graph distances
+  // If we know the active file, enrich with graph distances and co-edit scores
   if (input.active_file) {
+    // Normalize active_file path to match the stored relative paths
+    const activeFile = input.active_file.replace(/\\/g, "/");
+
+    // Graph distances
     try {
       const anchor = candidates.find((c) =>
-        c.path === input.active_file || c.path.endsWith("/" + input.active_file)
+        c.path === activeFile || c.path.endsWith("/" + activeFile)
       );
 
       if (anchor) {
@@ -78,6 +82,25 @@ export async function handleQueryContext(
       }
     } catch {
       // graph not available yet — skip distance enrichment
+    }
+
+    // Co-edit scores — files historically changed in the same session
+    try {
+      const candidatePaths = [...new Set(candidates.map((c) => c.path))];
+      const coeditScores = engine.getCoEditScores({
+        projectPath,
+        activeFilePath: activeFile,
+        candidatePaths,
+      });
+
+      if (Object.keys(coeditScores).length > 0) {
+        candidates = candidates.map((c) => ({
+          ...c,
+          coedit_score: coeditScores[c.path] ?? 0,
+        }));
+      }
+    } catch {
+      // no co-edit data yet — skip
     }
   }
 

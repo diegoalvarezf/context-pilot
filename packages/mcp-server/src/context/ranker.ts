@@ -1,14 +1,15 @@
 export interface Candidate {
   chunk_id: string;
-  score: number;        // semantic similarity [0,1]
+  score: number;          // semantic similarity [0,1]
   content: string;
   chunk_type: string;
   name: string | null;
   path: string;
   start_line: number;
   end_line: number;
-  graph_distance?: number;  // normalized [0,1], lower = closer
-  recency?: number;         // normalized [0,1], lower = more recent
+  graph_distance?: number; // normalized [0,1], lower = closer
+  recency?: number;        // normalized [0,1], lower = more recent
+  coedit_score?: number;   // normalized [0,1], higher = more co-edited with active file
 }
 
 export interface RankedResult extends Candidate {
@@ -16,25 +17,29 @@ export interface RankedResult extends Candidate {
 }
 
 const WEIGHTS = {
-  semantic: 0.6,
-  graph: 0.25,
-  recency: 0.15,
+  semantic: 0.55,
+  graph:    0.20,
+  recency:  0.10,
+  coedit:   0.15,
 } as const;
 
 /**
  * Re-ranks candidates combining semantic similarity, graph proximity,
- * and file recency. Returns sorted descending by final_score.
+ * file recency, and historical co-edit patterns.
+ * Returns sorted descending by final_score.
  */
 export function rankCandidates(candidates: Candidate[]): RankedResult[] {
   return candidates
     .map((c) => {
-      const graphScore = 1 - (c.graph_distance ?? 0.5);   // invert: closer = higher score
-      const recencyScore = 1 - (c.recency ?? 0.5);         // invert: recent = higher score
+      const graphScore   = 1 - (c.graph_distance ?? 0.5); // invert: closer = higher
+      const recencyScore = 1 - (c.recency ?? 0.5);        // invert: recent = higher
+      const coeditScore  = c.coedit_score ?? 0;            // higher = more co-edited
 
       const final_score =
         WEIGHTS.semantic * c.score +
-        WEIGHTS.graph * graphScore +
-        WEIGHTS.recency * recencyScore;
+        WEIGHTS.graph    * graphScore +
+        WEIGHTS.recency  * recencyScore +
+        WEIGHTS.coedit   * coeditScore;
 
       return { ...c, final_score: Math.round(final_score * 10000) / 10000 };
     })

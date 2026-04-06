@@ -12,6 +12,8 @@ import {
   upsertProject,
   upsertMemoryEmbedding,
   getMemoryEmbeddings,
+  recordCoEdits,
+  getCoEditScores,
 } from "./storage/sqlite.js";
 import { initEmbedder, embedSingle, embedTexts } from "./embedder/embedder.js";
 import { initTreeSitter } from "./indexer/languages.js";
@@ -67,6 +69,13 @@ export class ContextEngine implements IContextEngine {
           params.paths,
           params.force ?? false
         ));
+
+        // Record co-edit relationships for all files changed in this session window
+        const { relative } = await import("path");
+        const relPaths = params.paths.map((p) =>
+          relative(params.projectPath, p).replace(/\\/g, "/")
+        );
+        recordCoEdits(this.db, pid, relPaths);
       } else {
         // Full project index
         ({ filesIndexed, filesSkipped, totalFiles } = await indexProject(
@@ -258,6 +267,15 @@ export class ContextEngine implements IContextEngine {
     }
 
     return { id, success: true };
+  }
+
+  getCoEditScores(params: {
+    projectPath: string;
+    activeFilePath: string;
+    candidatePaths: string[];
+  }): Record<string, number> {
+    const pid = projectId(params.projectPath);
+    return getCoEditScores(this.db, pid, params.activeFilePath, params.candidatePaths);
   }
 
   close(): void {
