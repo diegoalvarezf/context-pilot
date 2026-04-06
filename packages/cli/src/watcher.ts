@@ -31,7 +31,7 @@ export function startWatcher(projectPath: string, engine: IContextEngine): void 
         `[context-pilot] re-indexing ${files.length} changed file(s)...\n`
       );
       try {
-        await engine.index({ projectPath: root, force: false });
+        await engine.index({ projectPath: root, force: false, paths: files });
         process.stderr.write("[context-pilot] re-index complete\n");
       } catch (err) {
         process.stderr.write(`[context-pilot] re-index failed: ${err}\n`);

@@ -2,12 +2,21 @@ import { join } from "path";
 import { homedir } from "os";
 import { randomUUID } from "crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { IContextEngine, IndexResult, SearchResult, StatusResult, SubgraphResult } from "./types.js";
-import { openDatabase, getAllEmbeddings, getProjectStats, getProjectGraphEdges, getChunksByIds, upsertProject } from "./storage/sqlite.js";
+import type { IContextEngine, IndexResult, SearchResult, StatusResult, SubgraphResult, MemorySearchResult } from "./types.js";
+import {
+  openDatabase,
+  getAllEmbeddings,
+  getProjectStats,
+  getProjectGraphEdges,
+  getChunksByIds,
+  upsertProject,
+  upsertMemoryEmbedding,
+  getMemoryEmbeddings,
+} from "./storage/sqlite.js";
 import { initEmbedder, embedSingle, embedTexts } from "./embedder/embedder.js";
 import { initTreeSitter } from "./indexer/languages.js";
-import { indexProject, projectId } from "./indexer/indexer.js";
-import { semanticSearch } from "./search/search.js";
+import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
+import { semanticSearch, cosineSimilarity } from "./search/search.js";
 import { DiGraph } from "./graph/graph.js";
 import type { EmbeddingCandidate } from "./types.js";
 
@@ -37,7 +46,7 @@ export class ContextEngine implements IContextEngine {
     process.stderr.write("[engine] ready\n");
   }
 
-  async index(params: { projectPath: string; force?: boolean }): Promise<IndexResult> {
+  async index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult> {
     if (!this._initialized) await this.init();
 
     const pid = projectId(params.projectPath);
@@ -46,11 +55,26 @@ export class ContextEngine implements IContextEngine {
     this.graphCache.delete(pid);
 
     try {
-      const { filesIndexed, filesSkipped, totalFiles } = await indexProject(
-        this.db,
-        params.projectPath,
-        params.force ?? false
-      );
+      let filesIndexed: number;
+      let filesSkipped: number;
+      let totalFiles: number;
+
+      if (params.paths && params.paths.length > 0) {
+        // Targeted re-index of specific files (used by watcher)
+        ({ filesIndexed, filesSkipped, totalFiles } = await indexSpecificFiles(
+          this.db,
+          params.projectPath,
+          params.paths,
+          params.force ?? false
+        ));
+      } else {
+        // Full project index
+        ({ filesIndexed, filesSkipped, totalFiles } = await indexProject(
+          this.db,
+          params.projectPath,
+          params.force ?? false
+        ));
+      }
 
       // Embed any chunks that don't have embeddings yet
       await this._embedNewChunks(pid);
@@ -92,8 +116,49 @@ export class ContextEngine implements IContextEngine {
     }
 
     const queryVec = await embedSingle(params.query);
-    const results = semanticSearch(queryVec, candidates, params.k ?? 10, params.filterType);
+    const raw = semanticSearch(queryVec, candidates, params.k ?? 10, params.filterType);
+
+    // Include last_modified from the candidate data
+    const candidateMap = new Map(candidates.map((c) => [c.chunkId, c]));
+    const results: SearchResult[] = raw.map((r) => ({
+      ...r,
+      last_modified: candidateMap.get(r.chunk_id)?.lastModified,
+    }));
+
     return { results };
+  }
+
+  async searchMemories(params: {
+    query: string;
+    projectPath: string;
+    k?: number;
+  }): Promise<{ results: MemorySearchResult[] }> {
+    if (!this._initialized) await this.init();
+
+    const pid = projectId(params.projectPath);
+    const memoryEmbeddings = getMemoryEmbeddings(this.db, pid);
+
+    if (memoryEmbeddings.length === 0) {
+      return { results: [] };
+    }
+
+    const queryVec = await embedSingle(params.query);
+    const k = params.k ?? 5;
+
+    const scored = memoryEmbeddings
+      .map((m) => ({ ...m, score: cosineSimilarity(queryVec, m.vector) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k);
+
+    return {
+      results: scored.map((m) => ({
+        id: m.memoryId,
+        memory_type: m.memoryType,
+        content: m.content,
+        score: m.score,
+        created_at: m.createdAt,
+      })),
+    };
   }
 
   async status(params: { projectPath: string }): Promise<StatusResult> {
@@ -175,6 +240,7 @@ export class ContextEngine implements IContextEngine {
     memoryType: "decision" | "pattern" | "todo" | "context_note";
     content: string;
   }): Promise<{ id: string; success: boolean }> {
+    if (!this._initialized) await this.init();
     const pid = projectId(params.projectPath);
     upsertProject(this.db, pid, params.projectPath);
     const id = randomUUID();
@@ -182,6 +248,15 @@ export class ContextEngine implements IContextEngine {
       INSERT INTO memories (id, project_id, session_id, memory_type, content, relevance_score, created_at)
       VALUES (?, ?, ?, ?, ?, 1.0, ?)
     `).run(id, pid, params.sessionId, params.memoryType, params.content, Date.now());
+
+    // Store embedding so memories are semantically searchable
+    try {
+      const vector = await embedSingle(params.content);
+      upsertMemoryEmbedding(this.db, id, vector, MODEL);
+    } catch {
+      // non-critical — memory is stored even without embedding
+    }
+
     return { id, success: true };
   }
 

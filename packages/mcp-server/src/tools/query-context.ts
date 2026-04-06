@@ -19,19 +19,26 @@ export async function handleQueryContext(
   engine: IContextEngine,
   projectPath: string
 ): Promise<string> {
-  const searchResponse = await engine.search({
-    query: input.prompt,
-    projectPath,
-    k: 20,
-  });
+  // Run code search and memory search in parallel
+  const [searchResponse, memoriesResponse] = await Promise.all([
+    engine.search({ query: input.prompt, projectPath, k: 20 }),
+    engine.searchMemories({ query: input.prompt, projectPath, k: 5 }),
+  ]);
 
   if (!searchResponse.results?.length) {
     return JSON.stringify({
       context: "",
       sources: [],
+      memories: memoriesResponse.results,
       token_count: 0,
       message: "No results. Index the project first with index_project.",
     });
+  }
+
+  // Build recency map from last_modified timestamps in results
+  const modifiedAtMap = new Map<string, number>();
+  for (const r of searchResponse.results) {
+    if (r.last_modified) modifiedAtMap.set(r.path, r.last_modified);
   }
 
   let candidates: Candidate[] = searchResponse.results.map((r) => ({
@@ -45,10 +52,14 @@ export async function handleQueryContext(
     end_line: r.end_line,
   }));
 
+  // Populate recency signal
+  if (modifiedAtMap.size > 0) {
+    candidates = normalizeRecency(candidates, modifiedAtMap);
+  }
+
   // If we know the active file, enrich with graph distances
   if (input.active_file) {
     try {
-      // Find a chunk from the active file to use as the anchor node
       const anchor = candidates.find((c) =>
         c.path === input.active_file || c.path.endsWith("/" + input.active_file)
       );
@@ -95,5 +106,10 @@ export async function handleQueryContext(
     tokenCount += estimated;
   }
 
-  return JSON.stringify({ context: contextParts.join("\n\n"), sources, token_count: tokenCount });
+  return JSON.stringify({
+    context: contextParts.join("\n\n"),
+    sources,
+    memories: memoriesResponse.results,
+    token_count: tokenCount,
+  });
 }

@@ -149,7 +149,8 @@ export function getAllEmbeddings(db: DatabaseSync, projectId: string): Embedding
       c.name,
       c.start_line,
       c.end_line,
-      f.path
+      f.path,
+      f.last_modified
     FROM embeddings e
     JOIN chunks c ON c.id = e.chunk_id
     JOIN files  f ON f.id = c.file_id
@@ -163,6 +164,7 @@ export function getAllEmbeddings(db: DatabaseSync, projectId: string): Embedding
     start_line: number;
     end_line: number;
     path: string;
+    last_modified: number | null;
   }>;
 
   return rows.map((r) => ({
@@ -174,6 +176,7 @@ export function getAllEmbeddings(db: DatabaseSync, projectId: string): Embedding
     startLine: r.start_line,
     endLine: r.end_line,
     path: r.path,
+    lastModified: r.last_modified ?? undefined,
   }));
 }
 
@@ -217,6 +220,56 @@ export function getProjectGraphEdges(
       edge_type: string;
       weight: number;
     }>;
+}
+
+export function getFileRepresentativeChunk(db: DatabaseSync, fileId: string): string | undefined {
+  const row = db
+    .prepare(`SELECT id FROM chunks WHERE file_id = ? ORDER BY start_line LIMIT 1`)
+    .get(fileId) as { id: string } | undefined;
+  return row?.id;
+}
+
+export function deleteProjectGraphEdges(db: DatabaseSync, projectId: string): void {
+  db.prepare(`DELETE FROM graph_edges WHERE project_id = ?`).run(projectId);
+}
+
+export function upsertMemoryEmbedding(
+  db: DatabaseSync,
+  memoryId: string,
+  vector: Float32Array,
+  model: string
+): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO memory_embeddings (memory_id, model, vector, dims, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(memoryId, model, vectorToBlob(vector), vector.length, Date.now());
+}
+
+export function getMemoryEmbeddings(
+  db: DatabaseSync,
+  projectId: string
+): Array<{ memoryId: string; vector: Float32Array; memoryType: string; content: string; createdAt: number }> {
+  const rows = db.prepare(`
+    SELECT me.memory_id, me.vector, m.memory_type, m.content, m.created_at
+    FROM memory_embeddings me
+    JOIN memories m ON m.id = me.memory_id
+    WHERE m.project_id = ?
+    ORDER BY m.created_at DESC
+  `).all(projectId) as Array<{
+    memory_id: string;
+    vector: Buffer;
+    memory_type: string;
+    content: string;
+    created_at: number;
+  }>;
+
+  return rows.map((r) => ({
+    memoryId: r.memory_id,
+    vector: blobToVector(r.vector),
+    memoryType: r.memory_type,
+    content: r.content,
+    createdAt: r.created_at,
+  }));
 }
 
 export function getChunksByIds(

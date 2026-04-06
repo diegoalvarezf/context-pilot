@@ -19,6 +19,7 @@ export interface EmbeddingCandidate {
   path: string;
   startLine: number;
   endLine: number;
+  lastModified?: number;
 }
 
 export interface SearchResult {
@@ -30,6 +31,15 @@ export interface SearchResult {
   path: string;
   start_line: number;
   end_line: number;
+  last_modified?: number;
+}
+
+export interface MemorySearchResult {
+  id: string;
+  memory_type: string;
+  content: string;
+  score: number;
+  created_at: number;
 }
 
 export interface GraphNode {
@@ -73,7 +83,7 @@ export interface StatusResult {
 
 export interface IContextEngine {
   init(): Promise<void>;
-  index(params: { projectPath: string; force?: boolean }): Promise<IndexResult>;
+  index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
   search(params: {
     query: string;
     projectPath: string;
@@ -98,5 +108,10 @@ export interface IContextEngine {
     memoryType: "decision" | "pattern" | "todo" | "context_note";
     content: string;
   }): Promise<{ id: string; success: boolean }>;
+  searchMemories(params: {
+    query: string;
+    projectPath: string;
+    k?: number;
+  }): Promise<{ results: MemorySearchResult[] }>;
   close(): void;
 }

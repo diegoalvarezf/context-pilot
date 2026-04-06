@@ -67,5 +67,13 @@ export function applySchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_graph_from        ON graph_edges(from_chunk);
     CREATE INDEX IF NOT EXISTS idx_graph_project     ON graph_edges(project_id);
     CREATE INDEX IF NOT EXISTS idx_memories_project  ON memories(project_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS memory_embeddings (
+      memory_id  TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+      model      TEXT NOT NULL,
+      vector     BLOB NOT NULL,
+      dims       INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
 }

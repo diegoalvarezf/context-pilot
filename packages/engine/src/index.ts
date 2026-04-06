@@ -10,4 +10,5 @@ export type {
   EmbeddingCandidate,
   GraphNode,
   GraphEdge,
+  MemorySearchResult,
 } from "./types.js";
