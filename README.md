@@ -97,34 +97,48 @@ $ context-pilot status
 
 ## Quick start
 
-**Requirements:** Node.js 22+. No Python. No Docker. No native compilation.
+**Requirements:** Node.js 20+. No Python. No Docker. No native compilation.
+
+### Global Installation (recommended)
 
 ```bash
-# 1. Clone and build
+# Install the CLI globally
+npm install -g context-pilot
+
+# Go to your project
+cd /path/to/your-project
+
+# Initialize (first time only)
+context-pilot init
+
+# Index your codebase (first time only)
+context-pilot index
+# First run downloads the embedding model (~90MB, cached to ~/.context-pilot/models)
+
+# Start the MCP server
+context-pilot serve --watch
+# The watcher keeps the index live as you code
+
+# In another terminal, open the visual UI
+context-pilot ui
+# → http://localhost:4321
+```
+
+### From Source (for development)
+
+```bash
+# Clone and build
 git clone https://github.com/diegoalvarezf/context-pilot.git
 cd context-pilot
 pnpm install && pnpm build
 
-# 2. Link the CLI globally
-npm link packages/cli
+# Link the CLI globally
+pnpm link -g ./packages/cli
 
-# 3. Go to your project
-cd /path/to/your-project
-
-# 4. Initialize and index
-context-pilot init
-context-pilot index
-# First run downloads the embedding model (~90MB, cached to ~/.context-pilot/models)
-
-# 5. Open the visual UI
-context-pilot ui
-# → http://localhost:4321
-
-# 6. Or serve the MCP server directly
-context-pilot serve --watch
+# Then use as above
 ```
 
-> The watcher keeps the index live as you code — no need to re-index manually.
+> The `--watch` flag keeps the index live as you code — no need to re-index manually.
 
 ---
 
