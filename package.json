@@ -2,6 +2,7 @@
   "name": "context-pilot",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Intelligent context middleware for AI coding agents",
   "workspaces": [
     "packages/*"
