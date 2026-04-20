@@ -204,6 +204,40 @@ Add to your Zed settings:
 
 ---
 
+## Session Management
+
+Save and recall session notes, TODOs, and decisions between sessions:
+
+### Save session notes
+
+```bash
+context-pilot session-save . \
+  --summary "Implemented dynamic challenge variants with Gemini" \
+  --todos "Integrate Clerk auth\nAdd more challenges\nImprove mobile layout" \
+  --decisions "Use Supabase for variant persistence" \
+  --patterns "Gemini prompt engineering for educational content"
+```
+
+Options:
+- `--summary` — High-level summary of what was done
+- `--todos` — Newline-separated list of next steps
+- `--decisions` — Architectural decisions made
+- `--patterns` — Patterns discovered or implemented
+
+All notes are automatically embedded and searchable.
+
+### Recall previous sessions
+
+```bash
+context-pilot session-recall .             # Show all memories
+context-pilot session-recall . --type todo # Show only TODOs
+context-pilot session-recall . --limit 5   # Show last 5 memories
+```
+
+Memories are grouped by type and show creation date.
+
+---
+
 ## Visual UI
 
 Run `context-pilot ui` to open a local dashboard at `http://localhost:4321`:
@@ -305,10 +339,11 @@ Zero Python. Zero Docker. Zero native modules that break on CI.
 - [x] Import graph — built from source during indexing
 - [x] Ranking: semantic + graph proximity + recency
 - [x] Semantic memory — architectural decisions embedded and retrieved
-- [x] CLI (`init`, `index`, `status`, `serve`)
+- [x] CLI (`init`, `index`, `status`, `serve`, `session-save`, `session-recall`)
 - [x] Incremental indexing + file watcher (`--watch`)
 - [x] Co-edit signal — files historically edited together are boosted in ranking
 - [x] Visual UI — `context-pilot ui` opens a local dashboard (graph, search, memories, status)
+- [x] Session persistence — save and recall notes, TODOs, decisions between sessions
 - [ ] VSCode extension (zero-config install)
 - [ ] Go / Rust language support
 
