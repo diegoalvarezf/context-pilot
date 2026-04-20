@@ -1,5 +1,5 @@
 {
-  "name": "@context-pilot/ui-server",
+  "name": "context-pilot-ui-server",
   "version": "0.1.0",
   "description": "Local UI server for context-pilot",
   "type": "module",
@@ -13,7 +13,7 @@
     "dev": "tsx watch src/server.ts"
   },
   "dependencies": {
-    "@context-pilot/engine": "workspace:*",
+    "context-pilot-engine": "^0.2.0",
     "express": "^4.19.0"
   },
   "devDependencies": {

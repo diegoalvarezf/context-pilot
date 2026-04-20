@@ -1,5 +1,5 @@
 {
-  "name": "@context-pilot/engine",
+  "name": "context-pilot-engine",
   "version": "0.2.0",
   "description": "Context-pilot embedding engine — TypeScript-native, no Python required",
   "type": "module",
