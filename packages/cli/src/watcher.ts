@@ -3,7 +3,7 @@ import { resolve } from "path";
 import type { IContextEngine } from "@context-pilot/engine";
 
 const DEBOUNCE_MS = 1500;
-const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py"]);
+const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css"]);
 const IGNORED = /node_modules|\.git|__pycache__|dist|build|\.context-pilot/;
 
 export function startWatcher(projectPath: string, engine: IContextEngine): void {

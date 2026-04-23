@@ -28,7 +28,7 @@ const IGNORE_DIRS = new Set([
   ".next", "coverage", ".venv", "venv", ".env",
 ]);
 
-const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py"]);
+const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css"]);
 
 export function projectId(rootPath: string): string {
   return uuidv5(rootPath, UUID_NAMESPACE);

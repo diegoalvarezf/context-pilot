@@ -104,6 +104,16 @@ export function extractImports(
       const sourceNode = node.childForFieldName("source");
       if (sourceNode) imports.push({ from: "module", to: sourceNode.text.replace(/['"]/g, "") });
     }
+    if (language === "php" && node.type === "namespace_use_declaration") {
+      const nameNode = node.child(1);
+      if (nameNode) imports.push({ from: "module", to: nameNode.text });
+    }
+    if (language === "php" &&
+        (node.type === "require_expression" || node.type === "require_once_expression" ||
+         node.type === "include_expression" || node.type === "include_once_expression")) {
+      const pathNode = node.child(1);
+      if (pathNode) imports.push({ from: "module", to: pathNode.text.replace(/['"]/g, "") });
+    }
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i);
       if (child) visit(child);
