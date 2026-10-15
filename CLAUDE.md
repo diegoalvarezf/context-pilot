@@ -50,6 +50,7 @@ parked/
 - Weights: `2^((ts - DECAY_EPOCH) / 180 days)` — fixed epoch, so stored sums stay valid across incremental runs
 - confidence(A→B) = wsupport(A,B) / wcommits(A); multiple sources combine with noisy-OR (`max` / `mean` available)
 - Defaults: `minSupport` 1, `minConfidence` 0.1 (`DEFAULT_MIN_SUPPORT` / `DEFAULT_MIN_CONFIDENCE` in `cochange.ts`)
+- Incremental only on fast-forward without renames; otherwise full re-mine
 
 ## Backtesting
 - Newest N commits (default 200) are the test set; older ones train the model. Each test commit is predicted
@@ -77,7 +78,6 @@ Conclusions: `minSupport` 1 triples recall/hit-rate at a small precision cost �
 Combination methods are indistinguishable here (only 10 multi-file queries; `mean` wins by one commit at q=3),
 so noisy-OR stays. With so little history these numbers are noisy: re-calibrate on a larger repo
 (`context-pilot backtest <repo> --json`) before trusting them, especially `minSupport` (1 may be too noisy on big repos).
-- Incremental only on fast-forward without renames; otherwise full re-mine
 
 ## MCP Tools
 
