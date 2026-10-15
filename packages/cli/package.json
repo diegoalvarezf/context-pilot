@@ -1,7 +1,19 @@
 {
   "name": "context-pilot",
-  "version": "0.2.0",
-  "description": "CLI for context-pilot — change-impact analysis for AI coding agents",
+  "version": "0.4.0",
+  "description": "CLI for context-pilot \u2014 change-impact analysis for AI coding agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diegoalvarezf/context-pilot.git"
+  },
+  "homepage": "https://github.com/diegoalvarezf/context-pilot#readme",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "bin": {
     "context-pilot": "dist/index.js"
@@ -10,7 +22,8 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node -e \"require('fs').copyFileSync('../../README.md','README.md')\""
   },
   "dependencies": {
     "context-pilot-engine": "workspace:*",
@@ -29,5 +42,13 @@
     "typescript-eslint": "^8.0.0",
     "tsx": "^4.0.0",
     "vitest": "^3.2.0"
-  }
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "git",
+    "co-change",
+    "impact-analysis",
+    "pre-commit"
+  ]
 }

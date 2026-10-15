@@ -104,17 +104,26 @@ download, no API calls.
 
 ## Quick start
 
-**Requirements:** Node.js 22+ and git.
+**Requirements:** Node.js 22.13+ and git.
+
+From your project's folder:
 
 ```bash
-npm install -g context-pilot
-
-cd /path/to/your-project
-context-pilot init      # first time only
-context-pilot index     # parse sources + mine git history (incremental afterwards)
-
-context-pilot co-changes src/some/file.ts
+npm install -g context-pilot && context-pilot setup
 ```
+
+That's it. `setup` indexes the code and git history, adds a pre-commit hook that warns about
+files you probably forgot, and, if you use Claude Code, registers the MCP server and a hook that
+asks Claude to review those files when it finishes. Run it again any time; it never duplicates anything.
+Use `--strict` to block commits instead of warning, `--no-claude` or `--no-hooks` to skip parts.
+
+Without installing anything globally (hooks then go through `npx`, a bit slower):
+
+```bash
+npx context-pilot@latest setup
+```
+
+To undo: `context-pilot hook uninstall && claude mcp remove -s local context-pilot`.
 
 ### From source
 
@@ -131,8 +140,10 @@ pnpm link -g ./packages/cli
 
 ### Claude Code
 
+`context-pilot setup` does it for you. By hand:
+
 ```bash
-claude mcp add context-pilot -- context-pilot serve --project . --watch
+claude mcp add -s local context-pilot -- context-pilot serve .
 ```
 
 ### Cursor
@@ -144,7 +155,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "context-pilot": {
       "command": "context-pilot",
-      "args": ["serve", "--project", ".", "--watch"]
+      "args": ["serve", "."]
     }
   }
 }
@@ -152,7 +163,7 @@ Add to `.cursor/mcp.json`:
 
 ### Continue.dev / Zed
 
-Any MCP client works the same way: run `context-pilot serve --project <path>` over stdio.
+Any MCP client works the same way: run `context-pilot serve <path>` over stdio (`--watch` to re-index on file changes).
 
 ---
 
@@ -192,6 +203,7 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 
 | Command | What it does |
 |---------|--------------|
+| `context-pilot setup [path]` | Everything at once: init, index, hooks, Claude Code MCP server (`--strict`, `--no-hooks`, `--no-claude`) |
 | `context-pilot init [path]` | Create `.context-pilot/config.json` |
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
 | `context-pilot impact <files...>` | Likely affected files with reasons: co-changes + import graph + tests (`--json`, `-n`, `-d` depth) |

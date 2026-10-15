@@ -1,7 +1,19 @@
 {
   "name": "context-pilot-engine",
-  "version": "0.2.0",
-  "description": "context-pilot engine — co-change mining, dependency graph and impact analysis",
+  "version": "0.4.0",
+  "description": "context-pilot engine \u2014 co-change mining, dependency graph and impact analysis",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diegoalvarezf/context-pilot.git"
+  },
+  "homepage": "https://github.com/diegoalvarezf/context-pilot#readme",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

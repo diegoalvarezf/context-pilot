@@ -13,7 +13,7 @@ Mines git history for co-changes and builds an import graph. MCP-compatible, 100
 packages/
 ├── engine/        # context-pilot-engine — git co-change mining, indexer, import graph, SQLite storage
 ├── mcp-server/    # context-pilot-mcp-server — 5 MCP tools, bridges AI client ↔ engine
-└── cli/           # context-pilot — init, index, status, serve, impact, check, hook, co-changes, backtest
+└── cli/           # context-pilot — setup, init, index, status, serve, impact, check, hook, co-changes, backtest
 parked/
 └── ui-server/     # old web dashboard, excluded from the workspace (to be revived as impact visualizer)
 ```
@@ -47,6 +47,7 @@ parked/
 | `mcp-server/src/tools/*.ts` | One file per tool |
 | `cli/src/index.ts` | Entry: installs warning filter, then dynamically imports `main.ts` |
 | `cli/src/hooks.ts` | Pure helpers: add/remove our marked block in a git hook script, our Stop hook in Claude settings |
+| `cli/src/commands/setup.ts` | `setup`: init + index + `installHooks` + `claude mcp add -s local` (removes an older entry first) |
 | `cli/src/commands/hook.ts` | `hook install/uninstall`: pre-commit (`git rev-parse --git-path hooks`) + `.claude/settings.local.json` |
 
 ## Co-change model
@@ -164,9 +165,13 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`),
   phase 4 (`check_change` MCP tool, `context-pilot check` with `--staged` / `--base` / `--strict`; threshold
   calibrated with `backtest --calibrate`), hooks (`context-pilot hook install [--strict] [--claude]`).
-- Hooks: commands use absolute node + CLI paths (work without PATH; re-run install after moving the CLI).
+- Install: `npm i -g context-pilot && context-pilot setup` (or `npx context-pilot@latest setup`). Packages publish
+  with the same version (cli/engine/mcp-server, `workspace:*` pinned by `pnpm publish`); `files: ["dist"]`; cli
+  copies the root README at `prepack`. npm versions 0.3.0, 1.0.0, 1.0.1 were used and unpublished: never reuse them.
+- Hooks: commands use absolute node + CLI paths (work without PATH; re-run install after moving the CLI); when
+  run from the npx cache they use `npx -y context-pilot@<version>` instead (`launcherArgv` in `hook.ts`).
   Pre-commit warns (`|| true`) unless `--strict`. Claude Stop hook = `check --claude-hook`: reads stdin, does
   nothing when `stop_hook_active`, exits 2 with the list on stderr (fed back to Claude), any error → exit 0.
 - Next: phase 2 symbol-level references.
-- Known: calibrated on express only (plain JS) — repeat on a TS / Python / PHP repo; the watcher does not
+- Known: `check` threshold calibrated on JS + TS (express, zod, ky), not yet Python / PHP; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.

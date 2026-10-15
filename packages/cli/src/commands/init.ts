@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, appendFileSync } from "fs";
 import { join, resolve } from "path";
 import chalk from "chalk";
 import ora from "ora";
@@ -12,41 +12,45 @@ const DEFAULT_CONFIG = {
   },
 };
 
+/** Writes `.context-pilot/config.json` unless it exists. Returns whether it was created. */
+export function initProject(root: string): { created: boolean; configFile: string } {
+  const configDir = join(root, ".context-pilot");
+  const configFile = join(configDir, "config.json");
+  if (existsSync(configFile)) return { created: false, configFile };
+
+  mkdirSync(configDir, { recursive: true });
+  const config = {
+    ...DEFAULT_CONFIG,
+    project_path: root,
+    created_at: new Date().toISOString(),
+  };
+  writeFileSync(configFile, JSON.stringify(config, null, 2));
+
+  // Add .context-pilot/db.sqlite to .gitignore if it exists
+  const gitignorePath = join(root, ".gitignore");
+  if (existsSync(gitignorePath)) {
+    const gitignore = readFileSync(gitignorePath, "utf8");
+    if (!gitignore.includes(".context-pilot/")) {
+      appendFileSync(gitignorePath, "\n# context-pilot\n.context-pilot/db.sqlite\n");
+    }
+  }
+  return { created: true, configFile };
+}
+
 export const initCommand = new Command("init")
   .description("Initialize context-pilot in a project")
   .argument("[path]", "Project root path", ".")
   .action(async (projectPath: string) => {
     const root = resolve(projectPath);
-    const configDir = join(root, ".context-pilot");
-    const configFile = join(configDir, "config.json");
+    const spinner = ora("Initializing context-pilot...").start();
+    const { created, configFile } = initProject(root);
 
-    if (existsSync(configFile)) {
+    if (!created) {
+      spinner.stop();
       console.log(chalk.yellow(`Already initialized at ${root}`));
       console.log(chalk.dim(`Config: ${configFile}`));
       console.log(chalk.dim(`Run ${chalk.white("context-pilot index")} to re-index.`));
       return;
-    }
-
-    const spinner = ora("Initializing context-pilot...").start();
-
-    mkdirSync(configDir, { recursive: true });
-
-    const config = {
-      ...DEFAULT_CONFIG,
-      project_path: root,
-      created_at: new Date().toISOString(),
-    };
-
-    writeFileSync(configFile, JSON.stringify(config, null, 2));
-
-    // Add .context-pilot/db.sqlite to .gitignore if it exists
-    const gitignorePath = join(root, ".gitignore");
-    if (existsSync(gitignorePath)) {
-      const { readFileSync, appendFileSync } = await import("fs");
-      const gitignore = readFileSync(gitignorePath, "utf8");
-      if (!gitignore.includes(".context-pilot/")) {
-        appendFileSync(gitignorePath, "\n# context-pilot\n.context-pilot/db.sqlite\n");
-      }
     }
 
     spinner.succeed(chalk.green("context-pilot initialized"));
@@ -59,9 +63,6 @@ export const initCommand = new Command("init")
       "  " + chalk.cyan("context-pilot serve") + chalk.dim("   — start the MCP server")
     );
     console.log("");
-    console.log(chalk.dim("Add to Claude Code:"));
-    console.log(
-      "  " + chalk.white(`claude mcp add context-pilot -- context-pilot serve --project ${root}`)
-    );
+    console.log(chalk.dim("Or do everything at once (index, hooks, Claude Code): ") + chalk.cyan("context-pilot setup"));
     console.log("");
   });

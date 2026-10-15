@@ -44,3 +44,6 @@ logs/
 
 # pnpm
 .pnpm-debug.log
+
+# copied at pack time
+packages/cli/README.md
