@@ -47,3 +47,4 @@ logs/
 
 # copied at pack time
 packages/cli/README.md
+*.tgz
