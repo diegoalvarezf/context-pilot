@@ -6,11 +6,36 @@ import {
   DEFAULT_MIN_CONFIDENCE,
   DEFAULT_MIN_SUPPORT,
   DEFAULT_TEST_COMMITS,
+  type CalibrationReport,
   type CombineMethod,
 } from "context-pilot-engine";
 
 const COMBINE_METHODS: CombineMethod[] = ["noisy-or", "max", "mean"];
-const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
+const pct = (x: number): string => (Number.isNaN(x) ? "-" : `${(x * 100).toFixed(1)}%`);
+
+function printCalibration(c: CalibrationReport): void {
+  console.log("");
+  console.log(chalk.bold("  Strongest-signal weight → precision"));
+  console.log(`  ${"bucket".padEnd(11)}${"predictions".padStart(12)}${"hits".padStart(8)}${"precision".padStart(11)}`);
+  for (const b of c.buckets) {
+    if (b.predictions === 0) continue;
+    console.log(
+      `  ${`${b.min.toFixed(1)}-${b.max.toFixed(1)}`.padEnd(11)}${String(b.predictions).padStart(12)}` +
+        `${String(b.hits).padStart(8)}${pct(b.precision).padStart(11)}`
+    );
+  }
+  console.log("");
+  console.log(chalk.bold("  check --min-score"));
+  console.log(
+    `  ${"≥".padEnd(6)}${"alerts".padStart(8)}${"precision".padStart(11)}${"commits alerted".padStart(17)}${"with a hit".padStart(12)}`
+  );
+  for (const t of c.thresholds) {
+    console.log(
+      `  ${t.threshold.toFixed(1).padEnd(6)}${String(t.alerts).padStart(8)}${pct(t.precision).padStart(11)}` +
+        `${pct(t.commitsAlerted).padStart(17)}${pct(t.commitsWithHit).padStart(12)}`
+    );
+  }
+}
 
 // DB-free on purpose: replays git history in memory and writes nothing, so it
 // does not go through ContextEngine (which opens ~/.context-pilot/db.sqlite).
@@ -25,6 +50,7 @@ export const backtestCommand = new Command("backtest")
   .option("--combine <method>", `Multi-file combination: ${COMBINE_METHODS.join(", ")}`, "noisy-or")
   .option("--shrinkage <n>", "Pseudo-commits added to each file's history (damps low-evidence confidence)")
   .option("--with-graph", "Combine co-changes with the import graph and related tests (impact scoring)", false)
+  .option("--calibrate", "Report precision per strongest-signal weight, to pick the `check` threshold", false)
   .option("--no-walk-forward", "Do not learn from test commits as they are replayed")
   .option("--json", "Output raw JSON", false)
   .action(
@@ -39,6 +65,7 @@ export const backtestCommand = new Command("backtest")
         combine: string;
         walkForward: boolean;
         withGraph: boolean;
+        calibrate: boolean;
         shrinkage?: string;
         json: boolean;
       }
@@ -60,6 +87,7 @@ export const backtestCommand = new Command("backtest")
           combine: options.combine as CombineMethod,
           walkForward: options.walkForward,
           withGraph: options.withGraph,
+          calibrate: options.calibrate,
           shrinkage: options.shrinkage === undefined ? undefined : parseFloat(options.shrinkage),
         });
       } catch (err) {
@@ -97,6 +125,7 @@ export const backtestCommand = new Command("backtest")
         );
       }
       console.log(`  ${chalk.dim("coverage")} ${pct(report.coverage)}`);
+      if (report.calibration) printCalibration(report.calibration);
       if (report.evaluatedCommits < 30) {
         console.log(chalk.yellow(`\n  Only ${report.evaluatedCommits} commits evaluated: treat these numbers as noisy.`));
       }

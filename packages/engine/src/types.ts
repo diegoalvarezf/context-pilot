@@ -121,7 +121,7 @@ export interface CheckQuery {
   staged?: boolean;
   /** Compare against the merge-base with this ref (branch / PR review) */
   base?: string;
-  /** Only report files whose strongest single signal reaches this (default 0.3) */
+  /** Only report files whose strongest single signal reaches this (default 0.6) */
   minScore?: number;
   limit?: number;
 }

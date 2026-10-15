@@ -154,3 +154,33 @@ describe("combineCoChanges combination methods", () => {
     expect(score("mean", 3).x).toBeCloseTo(1 / 3);
   });
 });
+
+describe("backtest calibration", () => {
+  it("buckets predictions by strongest signal and counts alerting commits", () => {
+    const commits = history(
+      [m("a.ts"), m("b.ts")],
+      [m("a.ts"), m("b.ts")],
+      [m("a.ts"), m("b.ts")],
+      [m("a.ts"), m("c.ts")],
+      [m("a.ts"), m("b.ts")] // test
+    );
+    const report = backtestCoChanges(commits, { testCommits: 1, calibrate: true });
+    const c = report.calibration!;
+    const bucket = (min: number) => c.buckets.find((b) => Math.abs(b.min - min) < 1e-9)!;
+
+    // Queries: a.ts → b (≈ 3/4 × 4/5, hit), c (≈ 1/4 × 4/5, miss); b.ts → a (≈ 3/3 × 3/4, hit)
+    expect(bucket(0.7)).toMatchObject({ predictions: 1, hits: 1, precision: 1 });
+    expect(c.buckets.reduce((s, b) => s + b.predictions, 0)).toBe(3);
+    expect(c.buckets.reduce((s, b) => s + b.hits, 0)).toBe(2);
+
+    const at = (t: number) => c.thresholds.find((x) => Math.abs(x.threshold - t) < 1e-9)!;
+    expect(at(0.1)).toMatchObject({ alerts: 3, hits: 2, commitsAlerted: 1, commitsWithHit: 1 });
+    expect(at(0.3)).toMatchObject({ alerts: 2, hits: 2, precision: 1 });
+    expect(at(0.8)).toMatchObject({ alerts: 0, commitsAlerted: 0, commitsWithHit: 0 });
+  });
+
+  it("is omitted unless requested", () => {
+    const commits = history([m("a.ts"), m("b.ts")], [m("a.ts"), m("b.ts")]);
+    expect(backtestCoChanges(commits, { testCommits: 1 }).calibration).toBeUndefined();
+  });
+});

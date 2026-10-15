@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { IContextEngine } from "context-pilot-engine";
+import { DEFAULT_CHECK_MIN_SCORE, type IContextEngine } from "context-pilot-engine";
 
 export const checkChangeSchema = z.object({
   staged: z.boolean().optional().default(false).describe("Only look at staged changes (what will be committed)"),
@@ -7,7 +7,7 @@ export const checkChangeSchema = z.object({
     .string()
     .optional()
     .describe("Compare against the merge-base with this ref (e.g. main) to check a whole branch"),
-  min_score: z.number().optional().default(0.3).describe("Only report files whose strongest single signal reaches this (0-1)"),
+  min_score: z.number().optional().default(DEFAULT_CHECK_MIN_SCORE).describe("Only report files whose strongest single signal reaches this (0-1)"),
   limit: z.number().optional().default(10).describe("Max files to return"),
 });
 

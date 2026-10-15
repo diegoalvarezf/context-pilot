@@ -100,7 +100,8 @@ describe("checkChange", () => {
     commitFiles("feature work", ["src/auth.ts"]);
     await engine.mineHistory({ projectPath: repo });
 
-    const res = await engine.checkChange({ projectPath: repo, base });
+    // The branch commit (auth without session) dilutes the pair below the default threshold
+    const res = await engine.checkChange({ projectPath: repo, base, minScore: 0.3 });
     expect(res.changed.map((c) => c.path)).toEqual(["src/auth.ts"]);
     expect(res.missing.map((r) => r.path)).toEqual(["src/session.ts"]);
   });

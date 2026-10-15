@@ -14,7 +14,14 @@ export { computeImpact, isTestFile, testStem, describeSignal, IMPACT_WEIGHTS } f
 export { ImportResolver, resolveFileImports } from "./indexer/imports.js";
 export type { ImportEdge } from "./indexer/imports.js";
 export { backtestCoChanges, backtestRepo, DEFAULT_TEST_COMMITS } from "./history/backtest.js";
-export type { BacktestOptions, BacktestReport, BacktestMetrics } from "./history/backtest.js";
+export type {
+  BacktestOptions,
+  BacktestReport,
+  BacktestMetrics,
+  CalibrationBucket,
+  CalibrationReport,
+  CalibrationThreshold,
+} from "./history/backtest.js";
 export type {
   IContextEngine,
   IndexResult,

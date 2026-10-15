@@ -44,7 +44,8 @@ import { readWorkingChanges } from "./history/diff.js";
 const DEFAULT_COCHANGE_LIMIT = 10;
 // Co-change candidates fed into impact scoring, before the final limit
 const IMPACT_COCHANGE_POOL = 50;
-export const DEFAULT_CHECK_MIN_SCORE = 0.3;
+// Calibrated with `backtest --with-graph --calibrate` (see CLAUDE.md): ~50-65% of alerts are real
+export const DEFAULT_CHECK_MIN_SCORE = 0.6;
 
 /** Normalizes a user-supplied path to the project-relative, forward-slash form used in storage. */
 export function toProjectPath(projectPath: string, file: string): string {

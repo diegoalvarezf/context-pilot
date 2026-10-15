@@ -46,6 +46,38 @@ export interface BacktestOptions {
    * configurations but slightly optimistic in absolute terms.
    */
   graph?: { edges: ImportEdge[]; files: string[] };
+  /**
+   * Also report how predictions behave per strongest-signal weight, the value
+   * `check` thresholds on. Uses the same queries as the metrics.
+   */
+  calibrate?: boolean;
+}
+
+export interface CalibrationBucket {
+  /** Strongest-signal weight range [min, max) (the last bucket includes 1) */
+  min: number;
+  max: number;
+  predictions: number;
+  /** Predictions that were really part of the commit */
+  hits: number;
+  precision: number;
+}
+
+export interface CalibrationThreshold {
+  threshold: number;
+  /** Predictions whose strongest signal is >= threshold */
+  alerts: number;
+  hits: number;
+  precision: number;
+  /** Share of evaluated commits with at least one alert */
+  commitsAlerted: number;
+  /** Share of evaluated commits with at least one correct alert */
+  commitsWithHit: number;
+}
+
+export interface CalibrationReport {
+  buckets: CalibrationBucket[];
+  thresholds: CalibrationThreshold[];
 }
 
 export interface BacktestMetrics {
@@ -83,6 +115,7 @@ export interface BacktestReport {
   answered: number;
   /** Metrics are averaged per commit first, then across commits */
   metrics: BacktestMetrics[];
+  calibration?: CalibrationReport;
 }
 
 /** Mutable co-change model used while walking forward through the test commits. */
@@ -198,6 +231,48 @@ function applyLifecycle(dead: Set<string>, commit: GitCommit): void {
   }
 }
 
+const CALIBRATION_STEPS = 10;
+const bucketOf = (w: number): number => Math.min(CALIBRATION_STEPS - 1, Math.max(0, Math.floor(w * CALIBRATION_STEPS + 1e-9)));
+
+/** Strongest signal of each prediction, and whether it was really in the commit. */
+type ScoredPrediction = { weight: number; hit: boolean };
+
+export function calibrationReport(perCommit: ScoredPrediction[][]): CalibrationReport {
+  const ratio = (a: number, b: number): number => (b === 0 ? NaN : a / b);
+  const buckets = Array.from({ length: CALIBRATION_STEPS }, (_, i) => ({ predictions: 0, hits: 0, i }));
+  for (const p of perCommit.flat()) {
+    const b = buckets[bucketOf(p.weight)];
+    b.predictions++;
+    if (p.hit) b.hits++;
+  }
+  const n = perCommit.length;
+  return {
+    buckets: buckets.map((b) => ({
+      min: b.i / CALIBRATION_STEPS,
+      max: (b.i + 1) / CALIBRATION_STEPS,
+      predictions: b.predictions,
+      hits: b.hits,
+      precision: ratio(b.hits, b.predictions),
+    })),
+    thresholds: Array.from({ length: CALIBRATION_STEPS - 1 }, (_, i) => {
+      const step = i + 1;
+      const t = step / CALIBRATION_STEPS;
+      const above = (p: ScoredPrediction): boolean => bucketOf(p.weight) >= step;
+      const kept = buckets.slice(step);
+      const alerts = kept.reduce((a, b) => a + b.predictions, 0);
+      const hits = kept.reduce((a, b) => a + b.hits, 0);
+      return {
+        threshold: t,
+        alerts,
+        hits,
+        precision: ratio(hits, alerts),
+        commitsAlerted: ratio(perCommit.filter((c) => c.some(above)).length, n),
+        commitsWithHit: ratio(perCommit.filter((c) => c.some((p) => p.hit && above(p))).length, n),
+      };
+    }),
+  };
+}
+
 const mean = (xs: number[]): number => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length);
 
 /**
@@ -227,6 +302,7 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
   const model = new Model(mined.files, mined.pairs.values(), deadFiles(train));
 
   const skipped = { bulk: 0, tooFewFiles: 0 };
+  const calibration: ScoredPrediction[][] = [];
   const perCommit: Array<{ covered: boolean; queries: number; answered: number; byK: BacktestMetrics[] }> = [];
 
   for (const commit of test) {
@@ -246,20 +322,29 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
       if (eligible.length < 2 || queries.length === 0) {
         skipped.tooFewFiles++;
       } else {
+        const scored: ScoredPrediction[] = [];
         const results = queries.map((q) => {
           const targets = new Set(eligible.filter((f) => !q.includes(f)));
           const coChanges = model.predict(q, scoring);
-          const predicted = options.graph
-            ? computeImpact({ changed: q, coChanges, imports: options.graph.edges, files: options.graph.files })
-                .map((r) => r.path)
-                .filter((p) => !model.dead.has(p))
-            : coChanges.map((r) => r.path);
+          const impact =
+            options.graph || options.calibrate
+              ? computeImpact({
+                  changed: q,
+                  coChanges,
+                  imports: options.graph?.edges ?? [],
+                  files: options.graph?.files ?? [],
+                }).filter((r) => !model.dead.has(r.path))
+              : undefined;
+          const predicted = options.graph ? impact!.map((r) => r.path) : coChanges.map((r) => r.path);
+          // As `check` does: threshold on the strongest single signal, not the combined score
+          if (impact) for (const r of impact) scored.push({ weight: r.signals[0]?.weight ?? 0, hit: targets.has(r.path) });
           return ks.map((k) => {
             const top = predicted.slice(0, k);
             const hits = top.filter((p) => targets.has(p)).length;
             return { k, answered: top.length > 0, precision: top.length ? hits / top.length : 0, recall: hits / targets.size, hit: hits > 0 };
           });
         });
+        calibration.push(scored);
         perCommit.push({
           covered: eligible.some((f) => model.files.has(f)),
           queries: queries.length,
@@ -302,6 +387,7 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
       recall: mean(perCommit.map((c) => c.byK[i].recall)),
       hitRate: mean(perCommit.map((c) => c.byK[i].hitRate)),
     })),
+    calibration: options.calibrate ? calibrationReport(calibration) : undefined,
   };
 }
 

@@ -63,6 +63,8 @@ parked/
   targets (unpredictable by construction); bulk commits (> 30 files) and commits with < 2 eligible files are skipped
 - `-q 1`: each file of the commit is queried alone; `-q n`: the first n files together. Metrics are averaged per
   commit, then across commits: precision@k (over queries with ≥1 prediction), recall@k, hit-rate@k, coverage
+- `--calibrate`: also buckets every prediction by strongest-signal weight (what `check` thresholds on) and reports
+  precision per bucket and per threshold, plus the share of commits that would get (correct) alerts
 
 ### Calibration on context-pilot itself (2026-10-15, HEAD f4e7890, 22 commits — very small sample)
 Walk-forward over all 22 commits: 12 evaluated (9 with < 2 known files, 1 bulk: the refocus commit, 48 files).
@@ -129,16 +131,38 @@ pnpm test          # run all tests (vitest, engine package)
   import graph from today the graph numbers are slightly optimistic. Repeat on a TS/Python repo before trusting more.
 - Check (phase 4, `checkChange`): changed files = `git diff` vs HEAD (or `--cached`, or merge-base with `--base`)
   + untracked; renamed-away and deleted paths are queried too; ignored files dropped; > 30 files = skipped as bulk.
-  Reports impact results not in the change whose *strongest single signal* ≥ `minScore` (0.3) — the noisy-OR score
-  saturates when many files change, so it only sorts. On express, 0.3 is quiet (best partners score 24–45%);
-  the threshold is not calibrated yet
+  Reports impact results not in the change whose *strongest single signal* ≥ `minScore` (0.6) — the noisy-OR score
+  saturates when many files change, so it only sorts
+- Check threshold calibration (2026-10-15, `backtest -t 500 --with-graph --calibrate`): every impact prediction of a
+  query is kept with its strongest-signal weight; precision = share that were in the commit; "alerted" / "hit" =
+  share of evaluated commits with ≥ 1 prediction / ≥ 1 correct prediction at that threshold (any query of the commit).
+  Precision counts all predictions, not only the top 10 `check` prints. Repos: expressjs/express (JS, a419aa73,
+  201 commits evaluated), colinhacks/zod (TS, 680d19f7, 314), sindresorhus/ky (TS, 3541888, 295; only 92 training
+  commits). `-q 1` (one file edited so far):
+
+  | ≥ min-score | express P / alerted / hit | zod P / alerted / hit | ky P / alerted / hit |
+  |---|---|---|---|
+  | 0.3 (old default) | 35.7% / 94.5% / 73.1% | 31.5% / 97.8% / 80.6% | 36.1% / 99.7% / 93.2% |
+  | 0.4 | 38.8% / 88.6% / 69.2% | 42.3% / 93.3% / 75.8% | 48.3% / 98.0% / 88.8% |
+  | 0.5 | 42.3% / 84.1% / 65.7% | 45.5% / 87.6% / 72.0% | 52.2% / 96.9% / 83.4% |
+  | **0.6 (default)** | 47.6% / 76.6% / 61.2% | 64.0% / 72.3% / 58.6% | 59.6% / 85.8% / 72.2% |
+  | 0.7 | 51.2% / 68.7% / 55.2% | 73.5% / 52.5% / 44.6% | 65.6% / 70.8% / 60.7% |
+  | 0.8 | 47.0% / 54.7% / 44.8% | 76.5% / 39.2% / 33.8% | 75.1% / 57.6% / 48.5% |
+
+  `-q 2` (two files edited) is harsher: at 0.6 precision is 27% (express), 52% (zod), 26% (ky), alerting on 38–55%
+  of commits. Per-bucket precision rises with weight on the TS repos (zod 0.1–0.2: 8%, 0.6–0.7: 54%, 0.9–1.0: 85%);
+  on express it is noisy and dips at 0.9–1.0 (33%). 0.6 is the knee: ~50–65% precision while still alerting on
+  ~3/4 of commits. Side effect: structural signals alone (dependent ≤ 0.15, test 0.3) can no longer trigger `check`,
+  so it is effectively co-change-only — a file without history never alerts. Run `backtest --calibrate` on your
+  own repo and pass `--min-score` if it behaves differently
 - Project ids: `projectId()` normalizes the root path (resolve, forward slashes, lower case on Windows)
 
 ## Current status
 - Done: phase 0 (cleanup), phase 1 (git co-changes), phase 5 (backtesting), phase 3 (impact engine: `impact_of`
   MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`),
-  phase 4 (`check_change` MCP tool, `context-pilot check` with `--staged` / `--base` / `--strict`).
-- Next: calibrate the check threshold (precision per score bucket in backtests), ship a ready-made pre-commit /
+  phase 4 (`check_change` MCP tool, `context-pilot check` with `--staged` / `--base` / `--strict`; threshold
+  calibrated with `backtest --calibrate`).
+- Next: ship a ready-made pre-commit /
   Claude Code hook, then phase 2 symbol-level references.
 - Known: calibrated on express only (plain JS) — repeat on a TS / Python / PHP repo; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.
