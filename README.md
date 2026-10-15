@@ -106,10 +106,10 @@ download, no API calls.
 
 **Requirements:** Node.js 22.13+ and git.
 
-From your project's folder:
+From your project's folder, with nothing to install first:
 
 ```bash
-npm install -g context-pilot && context-pilot setup
+npx context-pilot@latest setup
 ```
 
 That's it. `setup` indexes the code and git history, adds a pre-commit hook that warns about
@@ -117,13 +117,13 @@ files you probably forgot, and, if you use Claude Code, registers the MCP server
 asks Claude to review those files when it finishes. Run it again any time; it never duplicates anything.
 Use `--strict` to block commits instead of warning, `--no-claude` or `--no-hooks` to skip parts.
 
-Without installing anything globally (hooks then go through `npx`, a bit slower):
+Hooks then start context-pilot through `npx` (a second or two per commit). For faster hooks, install it globally:
 
 ```bash
-npx context-pilot@latest setup
+npm install -g context-pilot && context-pilot setup
 ```
 
-To undo: `context-pilot hook uninstall && claude mcp remove -s local context-pilot`.
+To undo: `npx context-pilot@latest hook uninstall && claude mcp remove -s local context-pilot`.
 
 ### From source
 

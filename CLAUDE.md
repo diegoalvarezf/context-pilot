@@ -165,7 +165,7 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`),
   phase 4 (`check_change` MCP tool, `context-pilot check` with `--staged` / `--base` / `--strict`; threshold
   calibrated with `backtest --calibrate`), hooks (`context-pilot hook install [--strict] [--claude]`).
-- Install: `npm i -g context-pilot && context-pilot setup` (or `npx context-pilot@latest setup`). Packages publish
+- Install: `npx context-pilot@latest setup` (README leads with it; `npm i -g` + `setup` for faster hooks). Packages publish
   with the same version (cli/engine/mcp-server, `workspace:*` pinned by `pnpm publish`); `files: ["dist"]`; cli
   copies the root README at `prepack`. npm versions 0.3.0, 1.0.0, 1.0.1 were used and unpublished: never reuse them.
 - Hooks: commands use absolute node + CLI paths (work without PATH; re-run install after moving the CLI); when
