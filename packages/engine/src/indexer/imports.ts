@@ -18,8 +18,9 @@ const JS_TO_TS: Record<string, string[]> = {
 
 /** Joins and normalizes a project-relative path; null if it escapes the project root. */
 function joinRel(dir: string, spec: string): string | null {
-  const p = posix.normalize(posix.join(dir, spec));
-  return p === ".." || p.startsWith("../") || posix.isAbsolute(p) ? null : p.replace(/^\.\//, "");
+  const p = posix.normalize(posix.join(dir, spec)).replace(/\/+$/, "");
+  if (p === ".." || p.startsWith("../") || posix.isAbsolute(p)) return null;
+  return p.replace(/^\.\//, "") || ".";
 }
 
 /**
@@ -71,7 +72,8 @@ export class ImportResolver {
     for (const tsExt of JS_TO_TS[ext] ?? []) out.push(base.slice(0, -ext.length) + tsExt);
     for (const e of JS_EXTS) out.push(base + e);
     for (const e of JS_EXTS) out.push(`${base}/index${e}`);
-    return out;
+    // `require("..")` resolves to "." here, so "./index.js" must become "index.js"
+    return out.map((p) => joinRel(".", p));
   }
 
   private python(spec: ImportSpec, dir: string): string[] {

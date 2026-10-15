@@ -32,13 +32,13 @@ export interface ImpactResult {
  */
 export const IMPACT_WEIGHTS = {
   /** File that imports a changed file */
-  dependent: 0.45,
+  dependent: 0.15,
   /** Each further hop of transitive dependents multiplies by this */
   transitiveDecay: 0.4,
-  /** File that a changed file imports */
-  dependency: 0.1,
+  /** File that a changed file imports. 0 = off: it lowered precision in backtests */
+  dependency: 0,
   /** Test file matched by name, or a test importing a changed file */
-  test: 0.6,
+  test: 0.3,
   /** Dependents of a file imported by more than this many files are damped (hubs) */
   hubThreshold: 8,
 } as const;

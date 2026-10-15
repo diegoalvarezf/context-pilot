@@ -58,7 +58,8 @@ const IGNORED_BASENAMES = new Set([
   ".DS_Store", "Thumbs.db",
 ]);
 const IGNORED_DIRS = /(^|\/)(node_modules|dist|build|out|coverage|vendor|\.next|__pycache__|\.context-pilot)\//;
-const IGNORED_FILES = /(\.min\.(js|css)|\.map|\.snap)$|(^|\/)CHANGELOG[^/]*$/i;
+// Release notes change with almost every commit in some projects: predicting them is trivially right and useless
+const IGNORED_FILES = /(\.min\.(js|css)|\.map|\.snap)$|(^|\/)(CHANGELOG|CHANGES|HISTORY|NEWS|RELEASE[-_]?NOTES)[^/]*$/i;
 
 export function defaultIgnore(path: string): boolean {
   const base = path.slice(path.lastIndexOf("/") + 1);

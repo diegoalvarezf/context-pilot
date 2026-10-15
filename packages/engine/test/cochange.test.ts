@@ -114,6 +114,9 @@ describe("defaultIgnore", () => {
     expect(defaultIgnore("packages/x/dist/index.js")).toBe(true);
     expect(defaultIgnore("app.min.js")).toBe(true);
     expect(defaultIgnore("CHANGELOG.md")).toBe(true);
+    expect(defaultIgnore("History.md")).toBe(true);
+    expect(defaultIgnore("docs/RELEASE_NOTES.md")).toBe(true);
+    expect(defaultIgnore("src/history/cochange.ts")).toBe(false);
     expect(defaultIgnore("src/distance.ts")).toBe(false);
     expect(defaultIgnore("sql/carga_facturas.sql")).toBe(false);
   });

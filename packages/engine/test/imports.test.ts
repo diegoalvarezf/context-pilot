@@ -7,6 +7,7 @@ import { scanImportGraph } from "../src/indexer/indexer.js";
 
 describe("ImportResolver", () => {
   const r = new ImportResolver([
+    "index.js",
     "src/a.ts",
     "src/b.ts",
     "src/lib/index.ts",
@@ -29,6 +30,8 @@ describe("ImportResolver", () => {
     expect(r.resolve({ to: "./comp.jsx" }, "src/a.ts", "tsx")).toEqual(["src/comp.tsx"]);
     expect(r.resolve({ to: "../web/app.js" }, "src/a.ts", "javascript")).toEqual(["web/app.js"]);
     expect(r.resolve({ to: "react" }, "src/a.ts", "typescript")).toEqual([]);
+    expect(r.resolve({ to: ".." }, "test/app.js", "javascript")).toEqual(["index.js"]);
+    expect(r.resolve({ to: "../" }, "test/app.js", "javascript")).toEqual(["index.js"]);
     expect(r.resolve({ to: "../../outside" }, "src/a.ts", "typescript")).toEqual([]);
   });
 

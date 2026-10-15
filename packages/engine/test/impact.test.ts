@@ -65,8 +65,8 @@ describe("computeImpact", () => {
     // Beyond the default depth
     expect(byPath.has("src/server.ts")).toBe(false);
 
-    // Dependency of the changed file
-    expect(byPath.get("src/crypto.ts")!.reasons).toEqual(["imported by src/auth.ts"]);
+    // Dependencies of the changed file are off by default (weight 0)
+    expect(byPath.has("src/crypto.ts")).toBe(false);
 
     // Tests: by name, and by importing the changed file
     expect(byPath.get("test/auth.test.ts")!.reasons).toEqual(["test named after src/auth.ts"]);

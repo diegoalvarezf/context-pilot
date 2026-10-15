@@ -107,13 +107,24 @@ pnpm test          # run all tests (vitest, engine package)
 
 ## Impact model (phase 3)
 - Signals per candidate, combined with noisy-OR; strongest signal kept per (kind, changed file):
-  co-change confidence; dependent (imports a changed file) 0.45, × 0.4 per extra hop, up to depth 2;
-  dependency (imported by a changed file) 0.1; test (named after, or directly importing, a changed file) 0.6
+  co-change confidence; dependent (imports a changed file) 0.15, × 0.4 per extra hop, up to depth 2;
+  dependency (imported by a changed file) 0 = off; test (named after, or directly importing, a changed file) 0.3
 - Hub damping: dependents of a file with > 8 importers are scaled by sqrt(8 / importers)
 - Weights live in `IMPACT_WEIGHTS` and are priors: `backtest --with-graph` uses today's graph for past commits
   (mild leak), so use it to compare configurations, not as an absolute number
-- Calibration on context-pilot (2026-10-15, 23 commits, 13 evaluated — tiny sample):
-  co-changes only P@5 25.7% R@10 51.3% Hit@10 88.0%; + graph, shrinkage 1: P@5 28.0% R@10 54.4% Hit@10 90.6%
+- Calibration on expressjs/express (2026-10-15, HEAD a419aa73, `-t 500`, 201 commits evaluated):
+
+  | config | P@5 | R@5 | Hit@5 | P@10 | R@10 | Hit@10 |
+  |---|---|---|---|---|---|---|
+  | co-changes only (minSupport 1, shrinkage 1) | 35.4% | 56.5% | 63.3% | 34.4% | 59.4% | 65.9% |
+  | co-changes, minSupport 2 | 38.4% | 54.1% | 60.8% | 38.0% | 55.9% | 62.5% |
+  | + graph, old priors (dep 0.45, test 0.6, dependency 0.1) | 32.2% | 55.8% | 62.7% | 30.9% | 60.1% | 67.0% |
+  | + graph, current (dep 0.15, test 0.3, dependency 0) | 34.3% | 56.5% | 63.4% | 33.2% | 60.5% | 67.1% |
+
+  Before ignoring `History.md` the numbers were inflated (~44% P@5, ~80% Hit@5): release-notes files are now in
+  `defaultIgnore`. Takeaways: git co-changes carry most of the signal; the import graph adds a little recall@10 and
+  answers files without history, at a small precision cost; the "dependency" signal only hurt precision. With an
+  import graph from today the graph numbers are slightly optimistic. Repeat on a TS/Python repo before trusting more.
 - Project ids: `projectId()` normalizes the root path (resolve, forward slashes, lower case on Windows)
 
 ## Current status
@@ -121,5 +132,5 @@ pnpm test          # run all tests (vitest, engine package)
   MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`).
 - Next: phase 4 — `check_change` MCP tool and `context-pilot check` (staged/unstaged diff → files you likely forgot;
   pre-commit / Claude Code hook), then phase 2 symbol-level references.
-- Known: calibration only on this small repo — repeat `backtest --with-graph` on a larger one; the watcher does not
+- Known: calibrated on express only (plain JS) — repeat on a TS / Python / PHP repo; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.
