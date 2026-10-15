@@ -1,7 +1,24 @@
 import { Command } from "commander";
 import { resolve } from "path";
 import chalk from "chalk";
-import { ContextEngine, DEFAULT_CHECK_MIN_SCORE } from "context-pilot-engine";
+import { ContextEngine, DEFAULT_CHECK_MIN_SCORE, type CheckResponse } from "context-pilot-engine";
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) return "";
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(c as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/** Message for Claude Code: exit code 2 feeds stderr back to Claude before it stops. */
+function claudeFeedback(r: CheckResponse): string {
+  const lines = r.missing.map((m) => `- ${m.path}: ${m.reasons[0] ?? ""}`);
+  return (
+    "context-pilot: these files usually change together with the ones you edited but are untouched. " +
+    "Check whether any needs updating; if none does, say so and stop.\n" +
+    lines.join("\n")
+  );
+}
 
 export const checkCommand = new Command("check")
   .description("Check your uncommitted changes for files you probably forgot to touch")
@@ -12,6 +29,7 @@ export const checkCommand = new Command("check")
   .option("-n, --limit <n>", "Max files to show", "10")
   .option("--strict", "Exit with code 1 when likely-missing files are found", false)
   .option("--json", "Output raw JSON", false)
+  .option("--claude-hook", "Run as a Claude Code Stop hook (reads hook input on stdin)", false)
   .action(
     async (options: {
       project: string;
@@ -21,8 +39,33 @@ export const checkCommand = new Command("check")
       limit: string;
       strict: boolean;
       json: boolean;
+      claudeHook: boolean;
     }) => {
       const root = resolve(options.project);
+
+      if (options.claudeHook) {
+        // Never break Claude's flow: any error means "nothing to say"
+        try {
+          const input = JSON.parse((await readStdin()) || "{}") as { stop_hook_active?: boolean };
+          // Claude is already continuing because of a Stop hook: don't loop
+          if (input.stop_hook_active) return;
+          const engine = new ContextEngine();
+          try {
+            await engine.mineHistory({ projectPath: root });
+            const r = await engine.checkChange({ projectPath: root, minScore: parseFloat(options.minScore), limit: 5 });
+            if (r.missing.length > 0) {
+              process.stderr.write(claudeFeedback(r) + "\n");
+              process.exitCode = 2;
+            }
+          } finally {
+            engine.close();
+          }
+        } catch {
+          process.exitCode = 0;
+        }
+        return;
+      }
+
       const engine = new ContextEngine();
 
       try {
@@ -62,7 +105,10 @@ export const checkCommand = new Command("check")
           }
         }
 
-        if (options.strict && response.missing.length > 0) process.exitCode = 1;
+        if (options.strict && response.missing.length > 0) {
+          if (!options.json) console.log(chalk.dim("Commit anyway with: git commit --no-verify"));
+          process.exitCode = 1;
+        }
       } finally {
         engine.close();
       }

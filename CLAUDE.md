@@ -13,7 +13,7 @@ Mines git history for co-changes and builds an import graph. MCP-compatible, 100
 packages/
 ├── engine/        # context-pilot-engine — git co-change mining, indexer, import graph, SQLite storage
 ├── mcp-server/    # context-pilot-mcp-server — 5 MCP tools, bridges AI client ↔ engine
-└── cli/           # context-pilot — init, index, status, serve, impact, check, co-changes, backtest
+└── cli/           # context-pilot — init, index, status, serve, impact, check, hook, co-changes, backtest
 parked/
 └── ui-server/     # old web dashboard, excluded from the workspace (to be revived as impact visualizer)
 ```
@@ -46,6 +46,8 @@ parked/
 | `mcp-server/src/server.ts` | `createServer(engine, projectPath)` — registers the MCP tools |
 | `mcp-server/src/tools/*.ts` | One file per tool |
 | `cli/src/index.ts` | Entry: installs warning filter, then dynamically imports `main.ts` |
+| `cli/src/hooks.ts` | Pure helpers: add/remove our marked block in a git hook script, our Stop hook in Claude settings |
+| `cli/src/commands/hook.ts` | `hook install/uninstall`: pre-commit (`git rev-parse --git-path hooks`) + `.claude/settings.local.json` |
 
 ## Co-change model
 - Commits newest-first, no merges; commits touching > 30 files (after ignores) are skipped as bulk changes
@@ -106,7 +108,7 @@ so noisy-OR stays. With so little history these numbers are noisy: re-calibrate 
 ```bash
 pnpm install       # install all dependencies (workspaces)
 pnpm build         # compile all packages (pnpm -r build)
-pnpm test          # run all tests (vitest, engine package)
+pnpm test          # run all tests (vitest, engine and cli packages)
 ```
 
 ## Impact model (phase 3)
@@ -161,8 +163,10 @@ pnpm test          # run all tests (vitest, engine package)
 - Done: phase 0 (cleanup), phase 1 (git co-changes), phase 5 (backtesting), phase 3 (impact engine: `impact_of`
   MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`),
   phase 4 (`check_change` MCP tool, `context-pilot check` with `--staged` / `--base` / `--strict`; threshold
-  calibrated with `backtest --calibrate`).
-- Next: ship a ready-made pre-commit /
-  Claude Code hook, then phase 2 symbol-level references.
+  calibrated with `backtest --calibrate`), hooks (`context-pilot hook install [--strict] [--claude]`).
+- Hooks: commands use absolute node + CLI paths (work without PATH; re-run install after moving the CLI).
+  Pre-commit warns (`|| true`) unless `--strict`. Claude Stop hook = `check --claude-hook`: reads stdin, does
+  nothing when `stop_hook_active`, exits 2 with the list on stderr (fed back to Claude), any error → exit 0.
+- Next: phase 2 symbol-level references.
 - Known: calibrated on express only (plain JS) — repeat on a TS / Python / PHP repo; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.

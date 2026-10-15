@@ -6,6 +6,7 @@ import { indexCommand } from "./commands/index.js";
 import { coChangesCommand } from "./commands/co-changes.js";
 import { impactCommand } from "./commands/impact.js";
 import { checkCommand } from "./commands/check.js";
+import { hookCommand } from "./commands/hook.js";
 import { backtestCommand } from "./commands/backtest.js";
 
 const program = new Command();
@@ -21,6 +22,7 @@ program.addCommand(serveCommand);
 program.addCommand(indexCommand);
 program.addCommand(impactCommand);
 program.addCommand(checkCommand);
+program.addCommand(hookCommand);
 program.addCommand(coChangesCommand);
 program.addCommand(backtestCommand);
 

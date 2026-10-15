@@ -79,6 +79,19 @@ It is deliberately quiet: a file is only reported when one signal on its own rea
 `--min-score` (default 0.6, where about half or more of the alerts were right in backtests). Use `--staged` in a pre-commit hook, `--base main` to check a
 whole branch, and `--strict` to exit with code 1 when something looks missing.
 
+To run it automatically:
+
+```
+context-pilot hook install            # git pre-commit: warns, never blocks
+context-pilot hook install --strict   # blocks the commit (skip once with git commit --no-verify)
+context-pilot hook install --claude   # also a Claude Code Stop hook: when Claude finishes,
+                                      # likely-missing files are sent back to it to review
+context-pilot hook uninstall
+```
+
+The pre-commit block is added next to any existing hook, never replacing it. The Claude Code hook
+goes to `.claude/settings.local.json` (it holds paths on your machine) and only fires once per stop.
+
 Noise is filtered out: merge commits, bulk commits (more than 30 files: formatting,
 mass renames, vendoring), lockfiles, build output and changelogs. Renames are
 followed, so history recorded under an old path counts for the current one.
@@ -183,6 +196,7 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
 | `context-pilot impact <files...>` | Likely affected files with reasons: co-changes + import graph + tests (`--json`, `-n`, `-d` depth) |
 | `context-pilot check` | Files likely missing from your uncommitted changes (`--staged`, `--base <ref>`, `--min-score`, `--strict`, `--json`) |
+| `context-pilot hook install` / `uninstall` | Run `check` before each commit (`--strict` blocks) and, with `--claude`, when Claude Code finishes |
 | `context-pilot co-changes <files...>` | Files that change together with the given ones (`--json`, `-n`, `--min-support`) |
 | `context-pilot backtest [path]` | Replay past commits: how well co-changes predict the rest of each commit (precision/recall/hit-rate@k). Read-only, no `init` needed (`--test-commits`, `-k`, `--with-graph`, `--calibrate` for precision per signal strength, `--json`) |
 | `context-pilot status [path]` | Index and history stats |
@@ -214,6 +228,7 @@ rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 - [x] Impact engine: co-changes + dependents (direct + transitive) + related tests, with reasons (`impact_of`, `context-pilot impact`)
 - [x] `check_change` tool and `context-pilot check`: files likely missing from your current change (pre-commit / agent hook)
 - [x] Calibrate the `check` threshold with backtests (precision per score bucket)
+- [x] Ready-made hooks: git pre-commit and Claude Code Stop (`context-pilot hook install`)
 - [ ] Symbol-level references ("who calls this function")
 - [ ] Impact visualizer (the old dashboard is parked in `parked/ui-server`)
 

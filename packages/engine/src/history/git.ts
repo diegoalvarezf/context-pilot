@@ -50,6 +50,12 @@ export async function headSha(cwd: string): Promise<string | null> {
   return r.code === 0 ? r.stdout.trim() : null;
 }
 
+/** Absolute hooks directory (honours core.hooksPath and worktrees), or null outside a repo. */
+export async function gitHooksDir(cwd: string): Promise<string | null> {
+  const r = await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"]);
+  return r.code === 0 ? r.stdout.trim() : null;
+}
+
 export async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
   const r = await runGit(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
   return r.code === 0;
