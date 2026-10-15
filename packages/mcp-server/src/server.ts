@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { IContextEngine } from "context-pilot-engine";
 import { coChangesSchema, handleCoChanges } from "./tools/co-changes.js";
+import { impactOfSchema, handleImpactOf } from "./tools/impact-of.js";
 import { indexProjectSchema, handleIndexProject } from "./tools/index-project.js";
 import { getGraphSchema, handleGetGraph } from "./tools/get-graph.js";
 
@@ -9,6 +10,18 @@ export function createServer(engine: IContextEngine, projectPath: string): McpSe
     name: "context-pilot",
     version: "0.3.0",
   });
+
+  server.tool(
+    "impact_of",
+    "Given the files you are changing, returns other files likely affected, each with reasons: files that " +
+      "historically change with them (git), files that import them (directly or transitively), and related tests. " +
+      "Call it before finishing a change to check what you may have missed.",
+    impactOfSchema.shape,
+    async ({ files, limit, depth }) => {
+      const result = await handleImpactOf({ files, limit, depth }, engine, projectPath);
+      return { content: [{ type: "text", text: result }] };
+    }
+  );
 
   server.tool(
     "co_changes",

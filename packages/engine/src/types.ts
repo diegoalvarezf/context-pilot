@@ -1,4 +1,5 @@
 import type { CoChangeResult } from "./history/cochange.js";
+import type { ImpactResult } from "./impact/impact.js";
 
 export interface Chunk {
   id: string;
@@ -74,6 +75,7 @@ export interface StatusResult {
 }
 
 export type { CoChangeResult, CoChangeSource } from "./history/cochange.js";
+export type { ImpactResult, ImpactSignal, ImpactSignalKind } from "./impact/impact.js";
 
 export interface CoChangeQuery {
   projectPath: string;
@@ -93,11 +95,29 @@ export interface CoChangeResponse {
   historyAvailable: boolean;
 }
 
+export interface ImpactQuery {
+  projectPath: string;
+  /** Files being changed — absolute, or relative to the project root */
+  files: string[];
+  limit?: number;
+  /** How many import hops to follow for dependents (default 2) */
+  depth?: number;
+}
+
+export interface ImpactResponse {
+  results: ImpactResult[];
+  /** Input files with no co-change history */
+  unknownFiles: string[];
+  historyAvailable: boolean;
+  graphAvailable: boolean;
+}
+
 export interface IContextEngine {
   init(): Promise<void>;
   index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
   mineHistory(params: { projectPath: string; force?: boolean; maxCommits?: number }): Promise<HistoryResult>;
   coChanges(params: CoChangeQuery): CoChangeResponse;
+  impact(params: ImpactQuery): ImpactResponse;
   status(params: { projectPath: string }): Promise<StatusResult>;
   graph(params: {
     target: string;

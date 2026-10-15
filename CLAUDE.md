@@ -12,8 +12,8 @@ Mines git history for co-changes and builds an import graph. MCP-compatible, 100
 ```
 packages/
 ├── engine/        # context-pilot-engine — git co-change mining, indexer, import graph, SQLite storage
-├── mcp-server/    # context-pilot-mcp-server — 3 MCP tools, bridges AI client ↔ engine
-└── cli/           # context-pilot — init, index, status, serve, co-changes, backtest
+├── mcp-server/    # context-pilot-mcp-server — 4 MCP tools, bridges AI client ↔ engine
+└── cli/           # context-pilot — init, index, status, serve, impact, co-changes, backtest
 parked/
 └── ui-server/     # old web dashboard, excluded from the workspace (to be revived as impact visualizer)
 ```
@@ -36,7 +36,10 @@ parked/
 | `engine/src/history/cochange.ts` | Pure aggregation: per-file/per-pair stats, rename resolution, noise filters, noisy-OR combination |
 | `engine/src/history/miner.ts` | Full vs incremental mining, writes to SQLite |
 | `engine/src/history/backtest.ts` | Backtesting: pure replay (`backtestCoChanges`) + read-only git wrapper (`backtestRepo`) |
-| `engine/src/indexer/indexer.ts` | Parses files with tree-sitter, stores chunks + import edges |
+| `engine/src/indexer/indexer.ts` | Parses files with tree-sitter, stores chunks + `file_imports`; `scanImportGraph` is the DB-free variant |
+| `engine/src/indexer/chunker.ts` | Chunks + `extractImports` (import/export-from/require/import(), Python, PHP use/require) |
+| `engine/src/indexer/imports.ts` | `ImportResolver` — specifier → project file (`./x.js`→`x.ts`, index files, Python relative/absolute, PHP namespaces) |
+| `engine/src/impact/impact.ts` | Pure impact scoring: co-changes + dependents + dependencies + tests, noisy-OR, reasons |
 | `engine/src/graph/graph.ts` | `DiGraph` — subgraph traversal, shortest paths |
 | `engine/src/storage/sqlite.ts` | `node:sqlite` — schema in `schema.ts`, queries |
 | `mcp-server/src/server.ts` | `createServer(engine, projectPath)` — registers the MCP tools |
@@ -48,8 +51,8 @@ parked/
 - Ignored: lockfiles, build output, `*.min.*`, `*.map`, snapshots, changelogs (`defaultIgnore`)
 - Renames: older commits are attributed to the current path
 - Weights: `2^((ts - DECAY_EPOCH) / 180 days)` — fixed epoch, so stored sums stay valid across incremental runs
-- confidence(A→B) = wsupport(A,B) / wcommits(A); multiple sources combine with noisy-OR (`max` / `mean` available)
-- Defaults: `minSupport` 1, `minConfidence` 0.1 (`DEFAULT_MIN_SUPPORT` / `DEFAULT_MIN_CONFIDENCE` in `cochange.ts`)
+- confidence(A→B) = wsupport(A,B) / wcommits(A) × n / (n + shrinkage), n = commits of A; multiple sources combine with noisy-OR (`max` / `mean` available)
+- Defaults: `minSupport` 1, `minConfidence` 0.1, `shrinkage` 1 (so "1 of 1 commits" scores 50%, not 100%) (`DEFAULT_MIN_SUPPORT` / `DEFAULT_MIN_CONFIDENCE` in `cochange.ts`)
 - Incremental only on fast-forward without renames; otherwise full re-mine
 
 ## Backtesting
@@ -83,6 +86,7 @@ so noisy-OR stays. With so little history these numbers are noisy: re-calibrate 
 
 | Tool | Handler |
 |------|---------|
+| `impact_of` | `mcp-server/src/tools/impact-of.ts` |
 | `co_changes` | `mcp-server/src/tools/co-changes.ts` |
 | `index_project` | `mcp-server/src/tools/index-project.ts` |
 | `get_graph` | `mcp-server/src/tools/get-graph.ts` |
@@ -101,10 +105,21 @@ pnpm build         # compile all packages (pnpm -r build)
 pnpm test          # run all tests (vitest, engine package)
 ```
 
+## Impact model (phase 3)
+- Signals per candidate, combined with noisy-OR; strongest signal kept per (kind, changed file):
+  co-change confidence; dependent (imports a changed file) 0.45, × 0.4 per extra hop, up to depth 2;
+  dependency (imported by a changed file) 0.1; test (named after, or directly importing, a changed file) 0.6
+- Hub damping: dependents of a file with > 8 importers are scaled by sqrt(8 / importers)
+- Weights live in `IMPACT_WEIGHTS` and are priors: `backtest --with-graph` uses today's graph for past commits
+  (mild leak), so use it to compare configurations, not as an absolute number
+- Calibration on context-pilot (2026-10-15, 23 commits, 13 evaluated — tiny sample):
+  co-changes only P@5 25.7% R@10 51.3% Hit@10 88.0%; + graph, shrinkage 1: P@5 28.0% R@10 54.4% Hit@10 90.6%
+- Project ids: `projectId()` normalizes the root path (resolve, forward slashes, lower case on Windows)
+
 ## Current status
-Refocused on change-impact analysis (merged in `master`).
-- Done: phase 0 (removed embeddings, memories, session commands; UI parked), phase 1 (git co-change mining + `co_changes` tool/CLI)
-  and phase 5 (backtesting: `context-pilot backtest`, calibration above).
-- Next: phase 3 impact engine, phase 4 `impact_of` / `check_change` / `context-pilot check`, phase 2 symbol-level graph.
-- Known: TS imports written as `./foo.js` don't resolve to `foo.ts` in the import graph yet; calibration was done on only
-  22 commits — repeat it on a larger repo; the backtest does not yet measure the import graph (phase 3 should reuse it).
+- Done: phase 0 (cleanup), phase 1 (git co-changes), phase 5 (backtesting), phase 3 (impact engine: `impact_of`
+  MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`).
+- Next: phase 4 — `check_change` MCP tool and `context-pilot check` (staged/unstaged diff → files you likely forgot;
+  pre-commit / Claude Code hook), then phase 2 symbol-level references.
+- Known: calibration only on this small repo — repeat `backtest --with-graph` on a larger one; the watcher does not
+  rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.

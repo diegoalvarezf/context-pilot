@@ -5,6 +5,8 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   CoChangeQuery,
   CoChangeResponse,
+  ImpactQuery,
+  ImpactResponse,
   HistoryResult,
   IContextEngine,
   IndexResult,
@@ -19,7 +21,10 @@ import {
   getCoChangeStats,
   getCoChangeFileStats,
   getCoChangePartners,
+  getFileImports,
+  getIndexedPaths,
 } from "./storage/sqlite.js";
+import { computeImpact, DEFAULT_IMPACT_DEPTH } from "./impact/impact.js";
 import { initTreeSitter } from "./indexer/languages.js";
 import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
 import { DiGraph } from "./graph/graph.js";
@@ -27,6 +32,8 @@ import { mineHistory } from "./history/miner.js";
 import { combineCoChanges, DEFAULT_MIN_CONFIDENCE, DEFAULT_MIN_SUPPORT } from "./history/cochange.js";
 
 const DEFAULT_COCHANGE_LIMIT = 10;
+// Co-change candidates fed into impact scoring, before the final limit
+const IMPACT_COCHANGE_POOL = 50;
 
 /** Normalizes a user-supplied path to the project-relative, forward-slash form used in storage. */
 export function toProjectPath(projectPath: string, file: string): string {
@@ -111,6 +118,31 @@ export class ContextEngine implements IContextEngine {
       .slice(0, params.limit ?? DEFAULT_COCHANGE_LIMIT);
 
     return { results, unknownFiles, historyAvailable };
+  }
+
+  impact(params: ImpactQuery): ImpactResponse {
+    const pid = projectId(params.projectPath);
+    const co = this.coChanges({ projectPath: params.projectPath, files: params.files, limit: IMPACT_COCHANGE_POOL });
+    const imports = getFileImports(this.db, pid);
+    const files = getIndexedPaths(this.db, pid);
+    const changed = [...new Set(params.files.map((f) => toProjectPath(params.projectPath, f)))];
+
+    const results = computeImpact({
+      changed,
+      coChanges: co.results,
+      imports,
+      files,
+      maxDepth: params.depth ?? DEFAULT_IMPACT_DEPTH,
+    })
+      .filter((r) => existsSync(join(params.projectPath, r.path)))
+      .slice(0, params.limit ?? DEFAULT_COCHANGE_LIMIT);
+
+    return {
+      results,
+      unknownFiles: co.unknownFiles,
+      historyAvailable: co.historyAvailable,
+      graphAvailable: files.length > 0,
+    };
   }
 
   async status(params: { projectPath: string }): Promise<StatusResult> {

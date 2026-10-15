@@ -23,6 +23,8 @@ export const backtestCommand = new Command("backtest")
   .option("--min-support <n>", "Minimum shared commits", String(DEFAULT_MIN_SUPPORT))
   .option("--min-confidence <x>", "Minimum confidence", String(DEFAULT_MIN_CONFIDENCE))
   .option("--combine <method>", `Multi-file combination: ${COMBINE_METHODS.join(", ")}`, "noisy-or")
+  .option("--shrinkage <n>", "Pseudo-commits added to each file's history (damps low-evidence confidence)")
+  .option("--with-graph", "Combine co-changes with the import graph and related tests (impact scoring)", false)
   .option("--no-walk-forward", "Do not learn from test commits as they are replayed")
   .option("--json", "Output raw JSON", false)
   .action(
@@ -36,6 +38,8 @@ export const backtestCommand = new Command("backtest")
         minConfidence: string;
         combine: string;
         walkForward: boolean;
+        withGraph: boolean;
+        shrinkage?: string;
         json: boolean;
       }
     ) => {
@@ -55,6 +59,8 @@ export const backtestCommand = new Command("backtest")
           minConfidence: parseFloat(options.minConfidence),
           combine: options.combine as CombineMethod,
           walkForward: options.walkForward,
+          withGraph: options.withGraph,
+          shrinkage: options.shrinkage === undefined ? undefined : parseFloat(options.shrinkage),
         });
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
@@ -72,8 +78,9 @@ export const backtestCommand = new Command("backtest")
       console.log(
         chalk.dim(
           `train ${report.trainCommits} commits · test ${report.testCommits} · ` +
-            `${o.queryFiles} file(s)/query · ${o.combine} · minSupport ${o.minSupport} · ` +
-            `${o.walkForward ? "walk-forward" : "static split"}`
+            `${o.queryFiles} file(s)/query · ${o.combine} · minSupport ${o.minSupport} · shrinkage ${o.shrinkage} · ` +
+            `${o.walkForward ? "walk-forward" : "static split"}` +
+            (o.withGraph ? " · + import graph" : "")
         )
       );
       console.log(

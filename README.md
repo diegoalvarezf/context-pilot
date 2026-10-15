@@ -44,6 +44,22 @@ $ context-pilot co-changes src/auth.ts
   towards recent history (half-life of 180 days).
 - Several changed files combine their evidence: a file tied to all of them ranks first.
 
+`context-pilot impact` (MCP: `impact_of`) adds what the code itself says — files that
+import yours, directly or a couple of hops away, and the tests that cover them:
+
+```
+$ context-pilot impact src/auth.ts
+
+   87%  test/auth.test.ts  [test]
+          test named after src/auth.ts
+          changed together with src/auth.ts in 14 of 17 commits
+   78%  src/middleware.ts
+          changed together with src/auth.ts in 9 of 17 commits
+          imports src/auth.ts
+   18%  src/app.ts
+          depends on src/auth.ts (2 imports away)
+```
+
 Noise is filtered out: merge commits, bulk commits (more than 30 files: formatting,
 mass renames, vendoring), lockfiles, build output and changelogs. Renames are
 followed, so history recorded under an old path counts for the current one.
@@ -112,7 +128,8 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 
 | Tool | When to use |
 |------|-------------|
-| `co_changes` | Before finishing a change: which other files usually change with the ones you touched? |
+| `impact_of` | Before finishing a change: what else is likely affected — co-changes, importers (direct and transitive), related tests — each with reasons |
+| `co_changes` | Only the git signal: which files usually change with the ones you touched? |
 | `index_project` | At the start of a session or after pulling — re-parses sources and mines new commits |
 | `get_graph` | Import graph around a file: what it depends on and what depends on it |
 
@@ -144,8 +161,9 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 |---------|--------------|
 | `context-pilot init [path]` | Create `.context-pilot/config.json` |
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
+| `context-pilot impact <files...>` | Likely affected files with reasons: co-changes + import graph + tests (`--json`, `-n`, `-d` depth) |
 | `context-pilot co-changes <files...>` | Files that change together with the given ones (`--json`, `-n`, `--min-support`) |
-| `context-pilot backtest [path]` | Replay past commits: how well co-changes predict the rest of each commit (precision/recall/hit-rate@k). Read-only, no `init` needed (`--test-commits`, `-k`, `--json`) |
+| `context-pilot backtest [path]` | Replay past commits: how well co-changes predict the rest of each commit (precision/recall/hit-rate@k). Read-only, no `init` needed (`--test-commits`, `-k`, `--with-graph`, `--json`) |
 | `context-pilot status [path]` | Index and history stats |
 | `context-pilot serve [path]` | Start the MCP server (`--watch` keeps the import graph live) |
 
@@ -170,10 +188,10 @@ rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 
 - [x] Git co-change mining — support, recency-weighted confidence, rename tracking, noise filters
 - [x] `co_changes` MCP tool and CLI command
-- [x] Import graph from source (TS/JS, Python, PHP)
+- [x] Import graph from source (TS/JS incl. `./x.js`→`x.ts`, re-exports, `require`; Python relative/absolute; PHP `use`/`require`)
 - [x] Backtesting: measure how well co-changes predict the rest of real past commits (`context-pilot backtest`)
-- [ ] Impact engine: combine co-changes with dependents (direct + transitive) and related tests, with reasons
-- [ ] `impact_of` / `check_change` tools and `context-pilot check` for staged changes (pre-commit / agent hook)
+- [x] Impact engine: co-changes + dependents (direct + transitive) + related tests, with reasons (`impact_of`, `context-pilot impact`)
+- [ ] `check_change` tool and `context-pilot check` for staged changes (pre-commit / agent hook)
 - [ ] Symbol-level references ("who calls this function")
 - [ ] Impact visualizer (the old dashboard is parked in `parked/ui-server`)
 

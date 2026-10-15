@@ -135,7 +135,7 @@ describe("combineCoChanges", () => {
         { source: "a.ts", candidate: "weak.ts", support: 2, wsupport: 0.5, lastTs: 1 },
       ],
       stats,
-      { minSupport: 2, minConfidence: 0.1 }
+      { minSupport: 2, minConfidence: 0.1, shrinkage: 0 }
     );
 
     expect(results.map((r) => r.path)).toEqual(["y.ts", "x.ts"]);
@@ -146,5 +146,23 @@ describe("combineCoChanges", () => {
     expect(x.support).toBe(7);
     expect(x.lastChangedTogether).toBe(9);
     expect(x.sources.map((s) => s.file).sort()).toEqual(["a.ts", "b.ts"]);
+  });
+});
+
+describe("combineCoChanges shrinkage", () => {
+  it("damps confidence of files with little history", () => {
+    const rows = [
+      { source: "new.ts", candidate: "x.ts", support: 1, wsupport: 1, lastTs: 1 },
+      { source: "old.ts", candidate: "y.ts", support: 9, wsupport: 9, lastTs: 1 },
+    ];
+    const stats = new Map([
+      ["new.ts", { commits: 1, wcommits: 1 }],
+      ["old.ts", { commits: 9, wcommits: 9 }],
+    ]);
+    const [y, x] = combineCoChanges(rows, stats, { minSupport: 1, minConfidence: 0, shrinkage: 1 });
+    // "1 of 1" is weaker evidence than "9 of 9"
+    expect(x.path).toBe("x.ts");
+    expect(x.score).toBeCloseTo(0.5);
+    expect(y.score).toBeCloseTo(0.9);
   });
 });

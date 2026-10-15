@@ -4,6 +4,7 @@ import { dirname } from "path";
 import { applySchema } from "./schema.js";
 import type { Chunk, GraphEdge } from "../types.js";
 import type { FileStats, PairStats } from "../history/cochange.js";
+import type { ImportEdge } from "../indexer/imports.js";
 
 export function openDatabase(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -28,6 +29,9 @@ export function tx(db: DatabaseSync, fn: () => void): void {
 // ── Project ───────────────────────────────────────────────────────────────────
 
 export function upsertProject(db: DatabaseSync, projectId: string, rootPath: string): void {
+  // A row with this path under another id predates path normalization in projectId();
+  // its data is a re-derivable cache, so drop it (cascades) instead of failing on UNIQUE.
+  db.prepare(`DELETE FROM projects WHERE root_path = ? AND id != ?`).run(rootPath, projectId);
   db.prepare(`
     INSERT INTO projects (id, name, root_path, created_at)
     VALUES (?, ?, ?, ?)
@@ -176,6 +180,28 @@ export function getChunksByIds(
       WHERE c.id IN (${placeholders})
     `)
     .all(...ids) as Array<{ id: string; chunk_type: string; name: string | null; path: string }>;
+}
+
+// ── File imports ──────────────────────────────────────────────────────────────
+
+export function replaceFileImports(db: DatabaseSync, projectId: string, edges: ImportEdge[]): void {
+  const stmt = db.prepare(`INSERT OR IGNORE INTO file_imports (project_id, from_path, to_path) VALUES (?, ?, ?)`);
+  tx(db, () => {
+    db.prepare(`DELETE FROM file_imports WHERE project_id = ?`).run(projectId);
+    for (const e of edges) stmt.run(projectId, e.from, e.to);
+  });
+}
+
+export function getFileImports(db: DatabaseSync, projectId: string): ImportEdge[] {
+  return db
+    .prepare(`SELECT from_path AS "from", to_path AS "to" FROM file_imports WHERE project_id = ?`)
+    .all(projectId) as unknown as ImportEdge[];
+}
+
+export function getIndexedPaths(db: DatabaseSync, projectId: string): string[] {
+  return (db.prepare(`SELECT path FROM files WHERE project_id = ?`).all(projectId) as Array<{ path: string }>).map(
+    (r) => r.path
+  );
 }
 
 // ── Co-change history ─────────────────────────────────────────────────────────

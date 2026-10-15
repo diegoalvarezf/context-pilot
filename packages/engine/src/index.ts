@@ -9,6 +9,9 @@ export {
   DEFAULT_MIN_CONFIDENCE,
 } from "./history/cochange.js";
 export type { CombineMethod } from "./history/cochange.js";
+export { computeImpact, isTestFile, testStem, describeSignal, IMPACT_WEIGHTS } from "./impact/impact.js";
+export { ImportResolver, resolveFileImports } from "./indexer/imports.js";
+export type { ImportEdge } from "./indexer/imports.js";
 export { backtestCoChanges, backtestRepo, DEFAULT_TEST_COMMITS } from "./history/backtest.js";
 export type { BacktestOptions, BacktestReport, BacktestMetrics } from "./history/backtest.js";
 export type {
@@ -22,6 +25,11 @@ export type {
   CoChangeResponse,
   CoChangeResult,
   CoChangeSource,
+  ImpactQuery,
+  ImpactResponse,
+  ImpactResult,
+  ImpactSignal,
+  ImpactSignalKind,
   Chunk,
   GraphNode,
   GraphEdge,

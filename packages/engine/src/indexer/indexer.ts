@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync, statSync } from "fs";
 import { createHash } from "crypto";
-import { join, relative, extname } from "path";
+import { join, relative, extname, resolve, sep } from "path";
 import Parser from "web-tree-sitter";
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "crypto";
 import { v5 as uuidv5 } from "uuid";
-import type { Chunk } from "../types.js";
+import type { Chunk, GraphEdge } from "../types.js";
 import { loadLanguage, getLanguageForFile, initTreeSitter } from "./languages.js";
 import { extractChunks, extractImports } from "./chunker.js";
+import { ImportResolver, resolveFileImports, type ImportEdge } from "./imports.js";
 import {
   upsertFile,
   getFileHash,
@@ -19,6 +20,7 @@ import {
   getFileRepresentativeChunk,
   deleteProjectGraphEdges,
   insertGraphEdges,
+  replaceFileImports,
 } from "../storage/sqlite.js";
 
 const UUID_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"; // UUID v5 URL namespace
@@ -30,8 +32,14 @@ const IGNORE_DIRS = new Set([
 
 const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css"]);
 
+/**
+ * Stable id for a project root. The same folder must map to the same id however
+ * it is spelled: "C:\repo", "C:/repo/" and "c:\repo" are one project on Windows.
+ */
 export function projectId(rootPath: string): string {
-  return uuidv5(rootPath, UUID_NAMESPACE);
+  let key = resolve(rootPath).split(sep).join("/").replace(/\/+$/, "");
+  if (process.platform === "win32") key = key.toLowerCase();
+  return uuidv5(key, UUID_NAMESPACE);
 }
 
 function hashFile(content: string): string {
@@ -66,50 +74,17 @@ function collectFiles(dir: string): string[] {
 }
 
 /**
- * Resolve a relative import path to candidate relative file paths within the project.
- * Returns multiple candidates (with different extensions) for the caller to match.
+ * Parses the given files and resolves their imports to file-level edges.
+ * Reads source files only — no database access — so it can run read-only.
  */
-function resolveImportCandidates(importPath: string, fromRelDir: string): string[] {
-  if (!importPath.startsWith(".")) return []; // external module
+export async function extractImportGraph(projectPath: string, absFiles: string[]): Promise<ImportEdge[]> {
+  await initTreeSitter();
+  const relOf = (abs: string): string => toRel(projectPath, abs);
+  const resolver = new ImportResolver(absFiles.map(relOf));
+  const parser = new Parser();
+  const edges: ImportEdge[] = [];
 
-  const base = join(fromRelDir, importPath).replace(/\\/g, "/");
-  return [
-    base + ".ts",
-    base + ".tsx",
-    base + ".js",
-    base + ".jsx",
-    base + "/index.ts",
-    base + "/index.tsx",
-    base + "/index.js",
-    base,
-  ];
-}
-
-/**
- * Second pass: extract import edges and store them in graph_edges.
- * Replaces all existing graph edges for the project.
- */
-async function buildGraphEdges(
-  db: DatabaseSync,
-  pid: string,
-  projectPath: string,
-  allFiles: string[]
-): Promise<void> {
-  const projectFiles = getProjectFiles(db, pid);
-  const pathToFileId = new Map(projectFiles.map((f) => [f.path, f.id]));
-
-  deleteProjectGraphEdges(db, pid);
-
-  const edges: Array<{ from: string; to: string; edgeType: "calls" | "extends" | "imports"; weight: number }> = [];
-
-  for (const absPath of allFiles) {
-    const relPath = relative(projectPath, absPath).replace(/\\/g, "/");
-    const fileId = pathToFileId.get(relPath);
-    if (!fileId) continue;
-
-    const fromChunkId = getFileRepresentativeChunk(db, fileId);
-    if (!fromChunkId) continue;
-
+  for (const absPath of absFiles) {
     const lang = getLanguageForFile(absPath);
     if (!lang) continue;
 
@@ -117,34 +92,55 @@ async function buildGraphEdges(
     try { source = readFileSync(absPath, "utf8"); } catch { continue; }
 
     try {
-      const language = await loadLanguage(lang);
-      const parser = new Parser();
-      parser.setLanguage(language);
+      parser.setLanguage(await loadLanguage(lang));
       const tree = parser.parse(source);
-      const imports = extractImports(source, lang, tree);
-      const fromRelDir = relPath.includes("/") ? relPath.slice(0, relPath.lastIndexOf("/")) : ".";
-
-      for (const imp of imports) {
-        const candidates = resolveImportCandidates(imp.to, fromRelDir);
-        for (const candidate of candidates) {
-          const targetFileId = pathToFileId.get(candidate);
-          if (!targetFileId) continue;
-          const toChunkId = getFileRepresentativeChunk(db, targetFileId);
-          if (!toChunkId) continue;
-          if (fromChunkId !== toChunkId) {
-            edges.push({ from: fromChunkId, to: toChunkId, edgeType: "imports", weight: 1.0 });
-          }
-          break; // found a match, stop trying candidates
-        }
-      }
+      edges.push(...resolveFileImports(resolver, relOf(absPath), lang, extractImports(source, lang, tree)));
+      tree.delete();
     } catch {
       // ignore parse errors in graph building
     }
   }
+  return edges;
+}
 
-  if (edges.length > 0) {
-    insertGraphEdges(db, pid, edges);
+/** Scans a project from disk and returns its import graph (read-only). */
+export async function scanImportGraph(projectPath: string): Promise<{ files: string[]; edges: ImportEdge[] }> {
+  const absFiles = collectFiles(projectPath);
+  const edges = await extractImportGraph(projectPath, absFiles);
+  return { files: absFiles.map((f) => toRel(projectPath, f)), edges };
+}
+
+function toRel(projectPath: string, absPath: string): string {
+  return relative(projectPath, absPath).split(sep).join("/");
+}
+
+/**
+ * Second pass: store file-level import edges, plus chunk-level edges between
+ * each file's representative chunk (used by get_graph).
+ */
+async function buildGraphEdges(
+  db: DatabaseSync,
+  pid: string,
+  projectPath: string,
+  allFiles: string[]
+): Promise<void> {
+  const fileEdges = await extractImportGraph(projectPath, allFiles);
+  replaceFileImports(db, pid, fileEdges);
+
+  const pathToFileId = new Map(getProjectFiles(db, pid).map((f) => [f.path, f.id]));
+  const chunkOf = (path: string): string | undefined => {
+    const fileId = pathToFileId.get(path);
+    return fileId ? getFileRepresentativeChunk(db, fileId) : undefined;
+  };
+
+  deleteProjectGraphEdges(db, pid);
+  const edges: GraphEdge[] = [];
+  for (const e of fileEdges) {
+    const from = chunkOf(e.from);
+    const to = chunkOf(e.to);
+    if (from && to && from !== to) edges.push({ from, to, edgeType: "imports", weight: 1.0 });
   }
+  if (edges.length > 0) insertGraphEdges(db, pid, edges);
 }
 
 export async function indexProject(

@@ -46,6 +46,11 @@ export const DEFAULT_MAX_FILES_PER_COMMIT = 30;
 /** Calibrated with `context-pilot backtest` (see CLAUDE.md) */
 export const DEFAULT_MIN_SUPPORT = 1;
 export const DEFAULT_MIN_CONFIDENCE = 0.1;
+/**
+ * Pseudo-commits added to a source file's history when computing confidence:
+ * confidence = raw * n / (n + shrinkage). Keeps "1 of 1 commits" from scoring 100%.
+ */
+export const DEFAULT_SHRINKAGE = 1;
 
 const IGNORED_BASENAMES = new Set([
   "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "composer.lock",
@@ -169,14 +174,15 @@ export interface CoChangeResult {
 export function combineCoChanges(
   rows: Array<{ source: string; candidate: string; support: number; wsupport: number; lastTs: number }>,
   sourceStats: Map<string, { commits: number; wcommits: number }>,
-  opts: { minSupport: number; minConfidence: number; combine?: CombineMethod; sourceCount?: number }
+  opts: { minSupport: number; minConfidence: number; combine?: CombineMethod; sourceCount?: number; shrinkage?: number }
 ): CoChangeResult[] {
+  const shrinkage = opts.shrinkage ?? DEFAULT_SHRINKAGE;
   const byCandidate = new Map<string, CoChangeResult>();
 
   for (const row of rows) {
     const stats = sourceStats.get(row.source);
     if (!stats || stats.wcommits <= 0 || row.support < opts.minSupport) continue;
-    const confidence = Math.min(1, row.wsupport / stats.wcommits);
+    const confidence = Math.min(1, row.wsupport / stats.wcommits) * (stats.commits / (stats.commits + shrinkage));
     if (confidence < opts.minConfidence) continue;
 
     let entry = byCandidate.get(row.candidate);

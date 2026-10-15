@@ -6,12 +6,17 @@ import {
   DEFAULT_MAX_FILES_PER_COMMIT,
   DEFAULT_MIN_CONFIDENCE,
   DEFAULT_MIN_SUPPORT,
+  DEFAULT_SHRINKAGE,
   mineCommits,
   pairKey,
+  type CoChangeResult,
   type CombineMethod,
   type FileStats,
   type PairStats,
 } from "./cochange.js";
+import { computeImpact } from "../impact/impact.js";
+import type { ImportEdge } from "../indexer/imports.js";
+import { scanImportGraph } from "../indexer/indexer.js";
 
 export const DEFAULT_TEST_COMMITS = 200;
 export const DEFAULT_TRAIN_COMMITS = 5000;
@@ -30,10 +35,17 @@ export interface BacktestOptions {
   minSupport?: number;
   minConfidence?: number;
   combine?: CombineMethod;
+  shrinkage?: number;
   /** true (default): each test commit is added to the model after being evaluated */
   walkForward?: boolean;
   maxFilesPerCommit?: number;
   ignore?: (path: string) => boolean;
+  /**
+   * Import graph to combine with co-changes (impact scoring). It is the graph
+   * as of today, not as of each test commit: a mild leak, fine for comparing
+   * configurations but slightly optimistic in absolute terms.
+   */
+  graph?: { edges: ImportEdge[]; files: string[] };
 }
 
 export interface BacktestMetrics {
@@ -53,8 +65,10 @@ export interface BacktestReport {
     minSupport: number;
     minConfidence: number;
     combine: CombineMethod;
+    shrinkage: number;
     walkForward: boolean;
     ks: number[];
+    withGraph: boolean;
   };
   headSha?: string;
   trainCommits: number;
@@ -91,7 +105,10 @@ class Model {
     }
   }
 
-  predict(sources: string[], opts: Required<Pick<BacktestOptions, "minSupport" | "minConfidence" | "combine">>): string[] {
+  predict(
+    sources: string[],
+    opts: Required<Pick<BacktestOptions, "minSupport" | "minConfidence" | "combine" | "shrinkage">>
+  ): CoChangeResult[] {
     const known = sources.filter((s) => this.files.has(s));
     const sourceSet = new Set(sources);
     const rows = known.flatMap((source) =>
@@ -103,7 +120,7 @@ class Model {
         lastTs: p.lastTs,
       }))
     ).filter((r) => !sourceSet.has(r.candidate) && !this.dead.has(r.candidate));
-    return combineCoChanges(rows, this.files, { ...opts, sourceCount: known.length }).map((r) => r.path);
+    return combineCoChanges(rows, this.files, { ...opts, sourceCount: known.length });
   }
 
   /** Moves all history of `from` to `to`, as the miner does for renames. */
@@ -198,6 +215,7 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
     minSupport: options.minSupport ?? DEFAULT_MIN_SUPPORT,
     minConfidence: options.minConfidence ?? DEFAULT_MIN_CONFIDENCE,
     combine: options.combine ?? "noisy-or",
+    shrinkage: options.shrinkage ?? DEFAULT_SHRINKAGE,
   } as const;
   const walkForward = options.walkForward ?? true;
   const maxFiles = options.maxFilesPerCommit ?? DEFAULT_MAX_FILES_PER_COMMIT;
@@ -230,7 +248,12 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
       } else {
         const results = queries.map((q) => {
           const targets = new Set(eligible.filter((f) => !q.includes(f)));
-          const predicted = model.predict(q, scoring);
+          const coChanges = model.predict(q, scoring);
+          const predicted = options.graph
+            ? computeImpact({ changed: q, coChanges, imports: options.graph.edges, files: options.graph.files })
+                .map((r) => r.path)
+                .filter((p) => !model.dead.has(p))
+            : coChanges.map((r) => r.path);
           return ks.map((k) => {
             const top = predicted.slice(0, k);
             const hits = top.filter((p) => targets.has(p)).length;
@@ -265,7 +288,7 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
   }
 
   return {
-    options: { testCommits: testCount, queryFiles, ...scoring, walkForward, ks },
+    options: { testCommits: testCount, queryFiles, ...scoring, walkForward, ks, withGraph: !!options.graph },
     trainCommits: train.length,
     testCommits: test.length,
     evaluatedCommits: perCommit.length,
@@ -284,11 +307,12 @@ export function backtestCoChanges(commits: GitCommit[], options: BacktestOptions
 
 /**
  * Backtests a repository's history. Read-only: only runs `git rev-parse` and
- * `git log`, and touches neither the working tree nor the context-pilot database.
+ * `git log` (plus reading source files with `withGraph`), and touches neither
+ * the working tree nor the context-pilot database.
  */
 export async function backtestRepo(
   projectPath: string,
-  options: BacktestOptions & { maxTrainCommits?: number } = {}
+  options: BacktestOptions & { maxTrainCommits?: number; withGraph?: boolean } = {}
 ): Promise<BacktestReport> {
   if (!(await isGitRepo(projectPath))) throw new Error(`Not a git repository: ${projectPath}`);
   const head = await headSha(projectPath);
@@ -299,5 +323,6 @@ export async function backtestRepo(
     range: head,
     maxCommits: testCommits + (options.maxTrainCommits ?? DEFAULT_TRAIN_COMMITS),
   });
-  return { ...backtestCoChanges(commits, options), headSha: head };
+  const graph = options.withGraph ? await scanImportGraph(projectPath) : options.graph;
+  return { ...backtestCoChanges(commits, { ...options, graph }), headSha: head };
 }

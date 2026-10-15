@@ -141,7 +141,7 @@ describe("combineCoChanges combination methods", () => {
   ];
   const score = (combine: "noisy-or" | "max" | "mean", sourceCount?: number) =>
     Object.fromEntries(
-      combineCoChanges(rows, stats, { minSupport: 1, minConfidence: 0, combine, sourceCount }).map((r) => [r.path.replace(".ts", ""), r.score])
+      combineCoChanges(rows, stats, { minSupport: 1, minConfidence: 0, combine, sourceCount, shrinkage: 0 }).map((r) => [r.path.replace(".ts", ""), r.score])
     );
 
   it("supports noisy-OR, max and mean", () => {

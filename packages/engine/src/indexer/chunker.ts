@@ -83,37 +83,65 @@ export function extractChunks(
   return results;
 }
 
+export interface ImportSpec {
+  /** Module specifier as written: "./foo.js", ".models", "App\Models\User", "lib/db.php" */
+  to: string;
+  /** Imported names, for `from . import a, b` style imports that name modules */
+  names?: string[];
+}
+
+const stripQuotes = (text: string): string => text.replace(/^[`'"]|[`'"]$/g, "");
+const stripAlias = (text: string): string => text.replace(/\s+as\s+\S+$/i, "").trim();
+
 /**
- * Extract import/dependency edges from source for graph building.
- * Returns pairs of [importerChunkName, importedModulePath].
+ * Extract module specifiers imported by a file. Resolution to project files
+ * happens later, in imports.ts.
  */
-export function extractImports(
-  source: string,
-  language: string,
-  tree: Parser.Tree
-): Array<{ from: string; to: string }> {
-  const imports: Array<{ from: string; to: string }> = [];
+export function extractImports(source: string, language: string, tree: Parser.Tree): ImportSpec[] {
+  const imports: ImportSpec[] = [];
+  const isJs = language === "javascript" || language === "typescript" || language === "tsx";
 
   function visit(node: Parser.SyntaxNode): void {
-    if (language === "python" && node.type === "import_from_statement") {
-      const moduleNode = node.childForFieldName("module_name");
-      if (moduleNode) imports.push({ from: "module", to: moduleNode.text });
+    if (isJs) {
+      if (node.type === "import_statement" || node.type === "import_declaration" || node.type === "export_statement") {
+        const sourceNode = node.childForFieldName("source");
+        if (sourceNode) imports.push({ to: stripQuotes(sourceNode.text) });
+      } else if (node.type === "call_expression") {
+        // require("x") and dynamic import("x") with a literal argument
+        const fn = node.childForFieldName("function");
+        const args = node.childForFieldName("arguments");
+        const first = args?.namedChild(0);
+        if (fn && first && first.type === "string" && (fn.text === "require" || fn.type === "import")) {
+          imports.push({ to: stripQuotes(first.text) });
+        }
+      }
     }
-    if ((language === "javascript" || language === "typescript" || language === "tsx") &&
-        node.type === "import_declaration") {
-      const sourceNode = node.childForFieldName("source");
-      if (sourceNode) imports.push({ from: "module", to: sourceNode.text.replace(/['"]/g, "") });
+
+    if (language === "python") {
+      if (node.type === "import_from_statement") {
+        const moduleNode = node.childForFieldName("module_name");
+        const names = node.childrenForFieldName("name").map((n) => stripAlias(n.text));
+        if (moduleNode) imports.push({ to: moduleNode.text, names });
+      } else if (node.type === "import_statement") {
+        for (const n of node.childrenForFieldName("name")) imports.push({ to: stripAlias(n.text) });
+      }
     }
-    if (language === "php" && node.type === "namespace_use_declaration") {
-      const nameNode = node.child(1);
-      if (nameNode) imports.push({ from: "module", to: nameNode.text });
+
+    if (language === "php") {
+      if (node.type === "namespace_use_declaration") {
+        for (let i = 0; i < node.namedChildCount; i++) {
+          const clause = node.namedChild(i);
+          if (clause?.type === "namespace_use_clause") imports.push({ to: stripAlias(clause.text).replace(/^\\/, "") });
+        }
+      } else if (
+        node.type === "require_expression" || node.type === "require_once_expression" ||
+        node.type === "include_expression" || node.type === "include_once_expression"
+      ) {
+        const pathNode = node.namedChild(0);
+        if (pathNode) imports.push({ to: pathNode.text });
+      }
     }
-    if (language === "php" &&
-        (node.type === "require_expression" || node.type === "require_once_expression" ||
-         node.type === "include_expression" || node.type === "include_once_expression")) {
-      const pathNode = node.child(1);
-      if (pathNode) imports.push({ from: "module", to: pathNode.text.replace(/['"]/g, "") });
-    }
+
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i);
       if (child) visit(child);

@@ -48,6 +48,16 @@ export function applySchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_graph_from        ON graph_edges(from_chunk);
     CREATE INDEX IF NOT EXISTS idx_graph_project     ON graph_edges(project_id);
 
+    -- File-level import graph (project-relative paths): from_path imports to_path
+    CREATE TABLE IF NOT EXISTS file_imports (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      from_path  TEXT NOT NULL,
+      to_path    TEXT NOT NULL,
+      PRIMARY KEY (project_id, from_path, to_path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_file_imports_to ON file_imports(project_id, to_path);
+
     -- Co-change statistics mined from git history (paths relative to project root).
     -- Weights use a fixed-epoch exponential decay, see history/cochange.ts.
     CREATE TABLE IF NOT EXISTS cochange_files (
