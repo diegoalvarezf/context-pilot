@@ -2,7 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import { applySchema } from "./schema.js";
-import type { Chunk, EmbeddingCandidate, GraphEdge } from "../types.js";
+import type { Chunk, GraphEdge } from "../types.js";
+import type { FileStats, PairStats } from "../history/cochange.js";
 
 export function openDatabase(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -13,21 +14,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
   return db;
 }
 
-// ── Vector serialization ──────────────────────────────────────────────────────
-// Bit-compatible with Python's struct.pack(f"{n}f", *vector) — little-endian f32
-
-export function vectorToBlob(vector: Float32Array): Buffer {
-  return Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
-}
-
-export function blobToVector(blob: Buffer | Uint8Array): Float32Array {
-  const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
-  const copy = Buffer.allocUnsafe(buf.length);
-  buf.copy(copy);
-  return new Float32Array(copy.buffer);
-}
-
-function tx(db: DatabaseSync, fn: () => void): void {
+export function tx(db: DatabaseSync, fn: () => void): void {
   db.exec("BEGIN");
   try {
     fn();
@@ -122,64 +109,6 @@ export function insertChunks(db: DatabaseSync, chunks: Chunk[]): void {
   });
 }
 
-// ── Embeddings ────────────────────────────────────────────────────────────────
-
-export function upsertEmbeddings(
-  db: DatabaseSync,
-  entries: Array<{ chunkId: string; vector: Float32Array; model: string }>
-): void {
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO embeddings (chunk_id, model, vector, dims, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-  tx(db, () => {
-    for (const item of entries) {
-      stmt.run(item.chunkId, item.model, vectorToBlob(item.vector), item.vector.length, Date.now());
-    }
-  });
-}
-
-export function getAllEmbeddings(db: DatabaseSync, projectId: string): EmbeddingCandidate[] {
-  const rows = db.prepare(`
-    SELECT
-      e.chunk_id,
-      e.vector,
-      c.content,
-      c.chunk_type,
-      c.name,
-      c.start_line,
-      c.end_line,
-      f.path,
-      f.last_modified
-    FROM embeddings e
-    JOIN chunks c ON c.id = e.chunk_id
-    JOIN files  f ON f.id = c.file_id
-    WHERE f.project_id = ?
-  `).all(projectId) as Array<{
-    chunk_id: string;
-    vector: Buffer;
-    content: string;
-    chunk_type: string;
-    name: string | null;
-    start_line: number;
-    end_line: number;
-    path: string;
-    last_modified: number | null;
-  }>;
-
-  return rows.map((r) => ({
-    chunkId: r.chunk_id,
-    vector: blobToVector(r.vector),
-    content: r.content,
-    chunkType: r.chunk_type,
-    name: r.name,
-    startLine: r.start_line,
-    endLine: r.end_line,
-    path: r.path,
-    lastModified: r.last_modified ?? undefined,
-  }));
-}
-
 export function getProjectStats(db: DatabaseSync, projectId: string): { files: number; chunks: number } {
   const files = (db
     .prepare(`SELECT COUNT(*) as n FROM files WHERE project_id = ?`)
@@ -233,109 +162,6 @@ export function deleteProjectGraphEdges(db: DatabaseSync, projectId: string): vo
   db.prepare(`DELETE FROM graph_edges WHERE project_id = ?`).run(projectId);
 }
 
-export function upsertMemoryEmbedding(
-  db: DatabaseSync,
-  memoryId: string,
-  vector: Float32Array,
-  model: string
-): void {
-  db.prepare(`
-    INSERT OR REPLACE INTO memory_embeddings (memory_id, model, vector, dims, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(memoryId, model, vectorToBlob(vector), vector.length, Date.now());
-}
-
-export function getMemoryEmbeddings(
-  db: DatabaseSync,
-  projectId: string
-): Array<{ memoryId: string; vector: Float32Array; memoryType: string; content: string; createdAt: number }> {
-  const rows = db.prepare(`
-    SELECT me.memory_id, me.vector, m.memory_type, m.content, m.created_at
-    FROM memory_embeddings me
-    JOIN memories m ON m.id = me.memory_id
-    WHERE m.project_id = ?
-    ORDER BY m.created_at DESC
-  `).all(projectId) as Array<{
-    memory_id: string;
-    vector: Buffer;
-    memory_type: string;
-    content: string;
-    created_at: number;
-  }>;
-
-  return rows.map((r) => ({
-    memoryId: r.memory_id,
-    vector: blobToVector(r.vector),
-    memoryType: r.memory_type,
-    content: r.content,
-    createdAt: r.created_at,
-  }));
-}
-
-// ── Co-edit tracking ──────────────────────────────────────────────────────────
-
-/**
- * Record that a set of files were edited in the same session window.
- * Increments the co-edit count for every pair in the set.
- */
-export function recordCoEdits(db: DatabaseSync, projectId: string, relPaths: string[]): void {
-  if (relPaths.length < 2) return;
-
-  const stmt = db.prepare(`
-    INSERT INTO file_coedits (id, project_id, file_a, file_b, count, last_seen)
-    VALUES (?, ?, ?, ?, 1, ?)
-    ON CONFLICT(project_id, file_a, file_b) DO UPDATE SET
-      count    = count + 1,
-      last_seen = excluded.last_seen
-  `);
-
-  const now = Date.now();
-  tx(db, () => {
-    for (let i = 0; i < relPaths.length; i++) {
-      for (let j = i + 1; j < relPaths.length; j++) {
-        // Store canonically sorted to avoid (A,B) and (B,A) duplicates
-        const [a, b] = [relPaths[i], relPaths[j]].sort();
-        stmt.run(`${projectId}:${a}:${b}`, projectId, a, b, now);
-      }
-    }
-  });
-}
-
-/**
- * For a given active file, return normalized co-edit scores [0,1] for candidate paths.
- * Score of 1 = always edited together with activeFilePath; 0 = never.
- */
-export function getCoEditScores(
-  db: DatabaseSync,
-  projectId: string,
-  activeFilePath: string,
-  candidatePaths: string[]
-): Record<string, number> {
-  if (candidatePaths.length === 0) return {};
-
-  const rows = db.prepare(`
-    SELECT
-      CASE WHEN file_a = ? THEN file_b ELSE file_a END AS other_file,
-      count
-    FROM file_coedits
-    WHERE project_id = ? AND (file_a = ? OR file_b = ?)
-  `).all(activeFilePath, projectId, activeFilePath, activeFilePath) as Array<{
-    other_file: string;
-    count: number;
-  }>;
-
-  if (rows.length === 0) return {};
-
-  const maxCount = Math.max(...rows.map((r) => r.count));
-  const scoreMap = new Map(rows.map((r) => [r.other_file, r.count / maxCount]));
-
-  const result: Record<string, number> = {};
-  for (const path of candidatePaths) {
-    result[path] = scoreMap.get(path) ?? 0;
-  }
-  return result;
-}
-
 export function getChunksByIds(
   db: DatabaseSync,
   ids: string[]
@@ -350,4 +176,111 @@ export function getChunksByIds(
       WHERE c.id IN (${placeholders})
     `)
     .all(...ids) as Array<{ id: string; chunk_type: string; name: string | null; path: string }>;
+}
+
+// ── Co-change history ─────────────────────────────────────────────────────────
+
+export function clearCoChanges(db: DatabaseSync, projectId: string): void {
+  db.prepare(`DELETE FROM cochange_pairs WHERE project_id = ?`).run(projectId);
+  db.prepare(`DELETE FROM cochange_files WHERE project_id = ?`).run(projectId);
+  db.prepare(`DELETE FROM cochange_state WHERE project_id = ?`).run(projectId);
+}
+
+/** Adds mined statistics on top of whatever is stored (incremental-safe). */
+export function addCoChanges(
+  db: DatabaseSync,
+  projectId: string,
+  files: Iterable<FileStats>,
+  pairs: Iterable<PairStats>
+): void {
+  const fileStmt = db.prepare(`
+    INSERT INTO cochange_files (project_id, path, commits, wcommits, last_ts)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(project_id, path) DO UPDATE SET
+      commits  = commits + excluded.commits,
+      wcommits = wcommits + excluded.wcommits,
+      last_ts  = MAX(last_ts, excluded.last_ts)
+  `);
+  const pairStmt = db.prepare(`
+    INSERT INTO cochange_pairs (project_id, file_a, file_b, support, wsupport, last_ts)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id, file_a, file_b) DO UPDATE SET
+      support  = support + excluded.support,
+      wsupport = wsupport + excluded.wsupport,
+      last_ts  = MAX(last_ts, excluded.last_ts)
+  `);
+  for (const f of files) fileStmt.run(projectId, f.path, f.commits, f.wcommits, f.lastTs);
+  for (const p of pairs) pairStmt.run(projectId, p.fileA, p.fileB, p.support, p.wsupport, p.lastTs);
+}
+
+export interface CoChangeState {
+  head_sha: string;
+  commits_processed: number;
+  commits_skipped: number;
+  mined_at: number;
+}
+
+export function getCoChangeState(db: DatabaseSync, projectId: string): CoChangeState | undefined {
+  return db
+    .prepare(`SELECT head_sha, commits_processed, commits_skipped, mined_at FROM cochange_state WHERE project_id = ?`)
+    .get(projectId) as CoChangeState | undefined;
+}
+
+export function setCoChangeState(db: DatabaseSync, projectId: string, state: CoChangeState): void {
+  db.prepare(`
+    INSERT INTO cochange_state (project_id, head_sha, commits_processed, commits_skipped, mined_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(project_id) DO UPDATE SET
+      head_sha          = excluded.head_sha,
+      commits_processed = excluded.commits_processed,
+      commits_skipped   = excluded.commits_skipped,
+      mined_at          = excluded.mined_at
+  `).run(projectId, state.head_sha, state.commits_processed, state.commits_skipped, state.mined_at);
+}
+
+export function getCoChangeFileStats(
+  db: DatabaseSync,
+  projectId: string,
+  paths: string[]
+): Map<string, { commits: number; wcommits: number }> {
+  const result = new Map<string, { commits: number; wcommits: number }>();
+  const stmt = db.prepare(`SELECT commits, wcommits FROM cochange_files WHERE project_id = ? AND path = ?`);
+  for (const path of paths) {
+    const row = stmt.get(projectId, path) as { commits: number; wcommits: number } | undefined;
+    if (row) result.set(path, row);
+  }
+  return result;
+}
+
+/** All pairs involving `path`, oriented as (source = path, candidate = other file). */
+export function getCoChangePartners(
+  db: DatabaseSync,
+  projectId: string,
+  path: string
+): Array<{ source: string; candidate: string; support: number; wsupport: number; lastTs: number }> {
+  const rows = db.prepare(`
+    SELECT file_b AS candidate, support, wsupport, last_ts FROM cochange_pairs
+    WHERE project_id = ? AND file_a = ?
+    UNION ALL
+    SELECT file_a AS candidate, support, wsupport, last_ts FROM cochange_pairs
+    WHERE project_id = ? AND file_b = ?
+  `).all(projectId, path, projectId, path) as Array<{
+    candidate: string;
+    support: number;
+    wsupport: number;
+    last_ts: number;
+  }>;
+  return rows.map((r) => ({
+    source: path,
+    candidate: r.candidate,
+    support: r.support,
+    wsupport: r.wsupport,
+    lastTs: r.last_ts,
+  }));
+}
+
+export function getCoChangeStats(db: DatabaseSync, projectId: string): { files: number; pairs: number } {
+  const files = (db.prepare(`SELECT COUNT(*) AS n FROM cochange_files WHERE project_id = ?`).get(projectId) as { n: number }).n;
+  const pairs = (db.prepare(`SELECT COUNT(*) AS n FROM cochange_pairs WHERE project_id = ?`).get(projectId) as { n: number }).n;
+  return { files, pairs };
 }

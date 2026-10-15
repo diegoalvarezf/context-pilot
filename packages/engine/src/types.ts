@@ -1,3 +1,5 @@
+import type { CoChangeResult } from "./history/cochange.js";
+
 export interface Chunk {
   id: string;
   fileId: string;
@@ -8,47 +10,6 @@ export interface Chunk {
   endLine: number;
   tokenCount: number;
   metadata?: Record<string, unknown>;
-}
-
-export interface EmbeddingCandidate {
-  chunkId: string;
-  vector: Float32Array;
-  content: string;
-  chunkType: string;
-  name: string | null;
-  path: string;
-  startLine: number;
-  endLine: number;
-  lastModified?: number;
-}
-
-export interface SearchResult {
-  chunk_id: string;
-  score: number;
-  content: string;
-  chunk_type: string;
-  name: string | null;
-  path: string;
-  start_line: number;
-  end_line: number;
-  last_modified?: number;
-}
-
-export interface MemorySearchResult {
-  id: string;
-  memory_type: string;
-  content: string;
-  score: number;
-  created_at: number;
-}
-
-export interface MemoryRecord {
-  id: string;
-  memory_type: string;
-  content: string;
-  session_id: string | null;
-  relevance_score: number;
-  created_at: number;
 }
 
 export interface GraphNode {
@@ -78,6 +39,20 @@ export interface IndexResult {
   filesIndexed: number;
   filesSkipped: number;
   totalFiles: number;
+  history?: HistoryResult;
+  error?: string;
+}
+
+export type HistoryStatus = "full" | "incremental" | "up-to-date" | "not-a-git-repo" | "no-commits" | "error";
+
+export interface HistoryResult {
+  status: HistoryStatus;
+  headSha?: string;
+  commitsProcessed: number;
+  /** Commits ignored as bulk changes (too many files) or touching only ignored files */
+  commitsSkipped: number;
+  files: number;
+  pairs: number;
   error?: string;
 }
 
@@ -88,17 +63,41 @@ export interface StatusResult {
   files?: number;
   chunks?: number;
   indexedAt?: number;
+  history?: {
+    headSha: string;
+    minedAt: number;
+    commitsProcessed: number;
+    commitsSkipped: number;
+    files: number;
+    pairs: number;
+  };
+}
+
+export type { CoChangeResult, CoChangeSource } from "./history/cochange.js";
+
+export interface CoChangeQuery {
+  projectPath: string;
+  /** Files being changed — absolute, or relative to the project root */
+  files: string[];
+  limit?: number;
+  /** Minimum number of shared commits (default 2) */
+  minSupport?: number;
+  /** Minimum recency-weighted confidence (default 0.1) */
+  minConfidence?: number;
+}
+
+export interface CoChangeResponse {
+  results: CoChangeResult[];
+  /** Input files with no recorded history (new, ignored, or outside the repo) */
+  unknownFiles: string[];
+  historyAvailable: boolean;
 }
 
 export interface IContextEngine {
   init(): Promise<void>;
   index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
-  search(params: {
-    query: string;
-    projectPath: string;
-    k?: number;
-    filterType?: string;
-  }): Promise<{ results: SearchResult[] }>;
+  mineHistory(params: { projectPath: string; force?: boolean; maxCommits?: number }): Promise<HistoryResult>;
+  coChanges(params: CoChangeQuery): CoChangeResponse;
   status(params: { projectPath: string }): Promise<StatusResult>;
   graph(params: {
     target: string;
@@ -106,32 +105,5 @@ export interface IContextEngine {
     depth?: number;
     direction?: string;
   }): Promise<SubgraphResult>;
-  graphDistances(params: {
-    projectPath: string;
-    activeChunkId: string;
-    candidateIds: string[];
-  }): Promise<{ distances: Record<string, number> }>;
-  remember(params: {
-    projectPath: string;
-    sessionId: string;
-    memoryType: "decision" | "pattern" | "todo" | "context_note";
-    content: string;
-  }): Promise<{ id: string; success: boolean }>;
-  searchMemories(params: {
-    query: string;
-    projectPath: string;
-    k?: number;
-  }): Promise<{ results: MemorySearchResult[] }>;
-  getCoEditScores(params: {
-    projectPath: string;
-    activeFilePath: string;
-    candidatePaths: string[];
-  }): Record<string, number>;
-  getFileGraph(params: { projectPath: string }): Promise<{
-    nodes: Array<{ id: string; path: string; language: string; chunkCount: number }>;
-    edges: Array<{ from: string; to: string }>;
-  }>;
-  listMemories(params: { projectPath: string }): Promise<{ memories: MemoryRecord[] }>;
-  deleteMemory(params: { projectPath: string; memoryId: string }): Promise<{ success: boolean }>;
   close(): void;
 }

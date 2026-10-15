@@ -5,17 +5,17 @@ import chalk from "chalk";
 import ora from "ora";
 
 const DEFAULT_CONFIG = {
-  token_budget: 8000,
-  model: "all-MiniLM-L6-v2",
   ignored_paths: ["node_modules", ".git", "__pycache__", "dist", "build"],
-  languages: ["typescript", "javascript", "python"],
+  history: {
+    max_commits: 5000,
+    max_files_per_commit: 30,
+  },
 };
 
 export const initCommand = new Command("init")
   .description("Initialize context-pilot in a project")
   .argument("[path]", "Project root path", ".")
-  .option("--token-budget <number>", "Max tokens per context response", "8000")
-  .action(async (projectPath: string, options: { tokenBudget: string }) => {
+  .action(async (projectPath: string) => {
     const root = resolve(projectPath);
     const configDir = join(root, ".context-pilot");
     const configFile = join(configDir, "config.json");
@@ -33,7 +33,6 @@ export const initCommand = new Command("init")
 
     const config = {
       ...DEFAULT_CONFIG,
-      token_budget: parseInt(options.tokenBudget, 10),
       project_path: root,
       created_at: new Date().toISOString(),
     };
@@ -55,7 +54,7 @@ export const initCommand = new Command("init")
     console.log(chalk.dim("  Config written to: ") + chalk.white(configFile));
     console.log("");
     console.log("Next steps:");
-    console.log("  " + chalk.cyan("context-pilot index") + chalk.dim("   — index your codebase"));
+    console.log("  " + chalk.cyan("context-pilot index") + chalk.dim("   — index code and git history"));
     console.log(
       "  " + chalk.cyan("context-pilot serve") + chalk.dim("   — start the MCP server")
     );

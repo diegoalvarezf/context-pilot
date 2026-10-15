@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { resolve } from "path";
 import chalk from "chalk";
 import ora from "ora";
-import { ContextEngine } from "@context-pilot/engine";
+import { ContextEngine } from "context-pilot-engine";
 
 export const statusCommand = new Command("status")
   .description("Show indexing status for a project")
@@ -37,6 +37,16 @@ export const statusCommand = new Command("status")
         "  " + chalk.dim("Chunks:         ") + chalk.white(result.chunks?.toLocaleString())
       );
       console.log("  " + chalk.dim("Last indexed:   ") + chalk.white(indexedAt));
+      if (result.history) {
+        const h = result.history;
+        console.log(
+          "  " + chalk.dim("Git history:    ") +
+            chalk.white(`${h.commitsProcessed.toLocaleString()} commits`) +
+            chalk.dim(` up to ${h.headSha.slice(0, 7)}, ${h.pairs.toLocaleString()} co-change pairs`)
+        );
+      } else {
+        console.log("  " + chalk.dim("Git history:    ") + chalk.yellow("not mined"));
+      }
       console.log("");
     } finally {
       engine.close();

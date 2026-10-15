@@ -1,12 +1,13 @@
 # context-pilot
 
-> Intelligent context middleware for AI coding agents.
-> MCP-compatible · 100% local · privacy-first · no Python
+> Change-impact analysis for AI coding agents.
+> **"You changed X — here's what else usually changes with it, and why."**
+> MCP-compatible · 100% local · works on any language git can track
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
 [![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
-[![Status: Beta](https://img.shields.io/badge/status-beta-orange)]()
+[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange)]()
 
 **Works with:** Claude Code · Cursor · Continue.dev · Zed · any MCP client
 
@@ -14,131 +15,67 @@
 
 ## The problem
 
-Every AI coding agent has the same blind spot: **context is dumb**.
+Coding agents are good at finding code: grep, LSP and file reads get them there.
+What they can't see is **what your team's history knows**:
 
-It injects whichever files are open, grabs the top-N semantic matches, and forgets everything the moment the session ends. It doesn't know that `auth.ts` and `middleware.ts` are always edited together. It doesn't remember that you decided *not* to use Redis three months ago. It has no idea that the function you're editing is called by 12 other files.
+- every time someone touches `billing/invoice.ts`, they also update `templates/invoice.html` and a migration;
+- `auth.ts` changes almost always come with a change to `auth.test.ts` and `middleware.ts`;
+- the config file nobody imports, but that breaks production when you forget it.
 
-There's no layer that manages **what context to inject, when, and why**.
+None of that is in the import graph. It is in `git log`. So agents finish a change
+and leave the "obvious" companion files untouched.
 
-## The solution
+## What context-pilot does
 
-**context-pilot** is a middleware MCP server that sits between your AI client and your codebase. It builds a local knowledge graph of your project and uses three signals at once to decide what context is actually relevant:
-
-```
-┌──────────────┐     MCP      ┌─────────────────────────────────────────┐
-│  AI Client   │◄────────────►│              context-pilot              │
-│ (Claude Code,│              │                                         │
-│  Cursor, ...) │             │  ┌──────────┐ ┌────────┐ ┌──────────┐  │
-└──────────────┘              │  │ Semantic │+│ Graph  │+│ Recency  │  │
-                              │  │ search   │ │ signal │ │ signal   │  │
-                              │  └──────────┘ └────────┘ └──────────┘  │
-                              │         embedding engine                │
-                              └───────────────────┬─────────────────────┘
-                                                  ▼
-                                       ┌──────────────────┐
-                                       │  ~/.context-pilot │
-                                       │  db.sqlite        │
-                                       │  (local only)     │
-                                       └──────────────────┘
-```
-
-**Semantic search** finds code similar to your prompt. **Graph signal** boosts results that are close to your active file in the import graph. **Recency** boosts files you've touched recently. The three combine into a single ranked list.
-
-Plus: every architectural decision you tell it to remember is embedded and retrieved semantically — your past choices inform future answers.
-
----
-
-## Demo
-
-### Before context-pilot
+It mines your repository's git history and learns which files change together
+(**co-changes**), then answers one question for your agent or for you:
 
 ```
-You: "Add rate limiting to the payment endpoint"
+$ context-pilot co-changes src/auth.ts
 
-Agent grabs: package.json, the 3 most-recently opened files, and a generic
-rate-limiter example from a completely different part of the codebase.
-
-Result: generic boilerplate, wrong import paths, misses that you already
-have a rate limiter in src/lib/rate-limit.ts.
+   82%  test/auth.test.ts          last together 2026-09-30
+          with src/auth.ts: 14/17 commits
+   61%  src/middleware.ts          last together 2026-08-12
+          with src/auth.ts: 9/17 commits
 ```
 
-### With context-pilot
+- **Support**: in how many past commits the files changed together.
+- **Confidence**: how likely the other file is to change when yours does, weighted
+  towards recent history (half-life of 180 days).
+- Several changed files combine their evidence: a file tied to all of them ranks first.
 
-```
-You: "Add rate limiting to the payment endpoint"
+Noise is filtered out: merge commits, bulk commits (more than 30 files: formatting,
+mass renames, vendoring), lockfiles, build output and changelogs. Renames are
+followed, so history recorded under an old path counts for the current one.
+Files that no longer exist are never suggested.
 
-query_context runs → ranks 20 candidates using semantic + graph + recency
-
-Returns:
-  src/lib/rate-limit.ts:1-45      (score: 0.94) ← your existing rate limiter
-  src/routes/payments.ts:1-82     (score: 0.91) ← the endpoint itself
-  src/middleware/auth.ts:12-34    (score: 0.78) ← used in the same route
-  [decision] "Use in-memory rate limiter, Redis rejected (2024-11) — 
-              adds infra dependency for marginal gain"  (score: 0.81)
-
-Result: agent reuses your existing implementation, follows your past decision,
-correct imports on the first try.
-```
-
-### `context-pilot status`
-
-```
-$ context-pilot status
-
-  project   my-api  (/Users/me/repos/my-api)
-  indexed   2 minutes ago
-  files     847
-  chunks    3,241
-  memories  12 architectural decisions stored
-  graph     4,102 import edges
-```
+Everything runs locally. Nothing leaves your machine: no embeddings, no model
+download, no API calls.
 
 ---
 
 ## Quick start
 
-**Requirements:** Node.js 20+. No Python. No Docker. No native compilation.
-
-### Global Installation (recommended)
+**Requirements:** Node.js 22+ and git.
 
 ```bash
-# Install the CLI globally
 npm install -g context-pilot
 
-# Go to your project
 cd /path/to/your-project
+context-pilot init      # first time only
+context-pilot index     # parse sources + mine git history (incremental afterwards)
 
-# Initialize (first time only)
-context-pilot init
-
-# Index your codebase (first time only)
-context-pilot index
-# First run downloads the embedding model (~90MB, cached to ~/.context-pilot/models)
-
-# Start the MCP server
-context-pilot serve --watch
-# The watcher keeps the index live as you code
-
-# In another terminal, open the visual UI
-context-pilot ui
-# → http://localhost:4321
+context-pilot co-changes src/some/file.ts
 ```
 
-### From Source (for development)
+### From source
 
 ```bash
-# Clone and build
 git clone https://github.com/diegoalvarezf/context-pilot.git
 cd context-pilot
 pnpm install && pnpm build
-
-# Link the CLI globally
 pnpm link -g ./packages/cli
-
-# Then use as above
 ```
-
-> The `--watch` flag keeps the index live as you code — no need to re-index manually.
 
 ---
 
@@ -165,144 +102,54 @@ Add to `.cursor/mcp.json`:
 }
 ```
 
-### Continue.dev
+### Continue.dev / Zed
 
-Add to `~/.continue/config.json`:
-
-```json
-{
-  "experimental": {
-    "modelContextProtocolServers": [
-      {
-        "transport": {
-          "type": "stdio",
-          "command": "context-pilot",
-          "args": ["serve", "--project", ".", "--watch"]
-        }
-      }
-    ]
-  }
-}
-```
-
-### Zed
-
-Add to your Zed settings:
-
-```json
-{
-  "context_servers": {
-    "context-pilot": {
-      "command": {
-        "path": "context-pilot",
-        "args": ["serve", "--project", ".", "--watch"]
-      }
-    }
-  }
-}
-```
+Any MCP client works the same way: run `context-pilot serve --project <path>` over stdio.
 
 ---
 
-## Session Management
-
-Save and recall session notes, TODOs, and decisions between sessions:
-
-### Save session notes
-
-```bash
-context-pilot session-save . \
-  --summary "Implemented dynamic challenge variants with Gemini" \
-  --todos "Integrate Clerk auth\nAdd more challenges\nImprove mobile layout" \
-  --decisions "Use Supabase for variant persistence" \
-  --patterns "Gemini prompt engineering for educational content"
-```
-
-Options:
-- `--summary` — High-level summary of what was done
-- `--todos` — Newline-separated list of next steps
-- `--decisions` — Architectural decisions made
-- `--patterns` — Patterns discovered or implemented
-
-All notes are automatically embedded and searchable.
-
-### Recall previous sessions
-
-```bash
-context-pilot session-recall .             # Show all memories
-context-pilot session-recall . --type todo # Show only TODOs
-context-pilot session-recall . --limit 5   # Show last 5 memories
-```
-
-Memories are grouped by type and show creation date.
-
----
-
-## Visual UI
-
-Run `context-pilot ui` to open a local dashboard at `http://localhost:4321`:
-
-- **Graph** — interactive import graph of your codebase. Nodes sized by complexity, colored by language. Click any file to see its co-edit relationships.
-- **Search** — semantic search over your codebase with the same 4-signal ranking used by the MCP tools.
-- **Memories** — browse, create, and delete architectural decisions. Memories are embedded and retrieved semantically alongside code context.
-- **Status** — files indexed, chunks, memories count, graph edges, last indexed time.
-
-```
-context-pilot ui               # default port 4321
-context-pilot ui --port 8080   # custom port
-```
-
----
-
-## MCP Tools
+## MCP tools
 
 | Tool | When to use |
 |------|-------------|
-| `query_context` | Before writing code — get relevant functions, patterns, and past decisions |
-| `index_project` | After cloning or after large refactors |
-| `remember` | Save an architectural decision so it persists across sessions |
-| `get_graph` | Understand the blast radius of a change — who calls this function? |
-| `search_code` | Semantic search when you know what you're looking for |
+| `co_changes` | Before finishing a change: which other files usually change with the ones you touched? |
+| `index_project` | At the start of a session or after pulling — re-parses sources and mines new commits |
+| `get_graph` | Import graph around a file: what it depends on and what depends on it |
 
-### `query_context` response shape
+### `co_changes` response
 
 ```json
 {
-  "context": "// src/lib/rate-limit.ts:1-45 (createRateLimiter)\nfunction createRateLimiter...",
-  "sources": [
-    { "path": "src/lib/rate-limit.ts", "name": "createRateLimiter", "lines": "1-45", "score": 0.94 },
-    { "path": "src/routes/payments.ts", "name": null, "lines": "1-82", "score": 0.91 }
-  ],
-  "memories": [
+  "results": [
     {
-      "id": "abc123",
-      "memory_type": "decision",
-      "content": "Use in-memory rate limiter. Redis rejected — adds infra dependency for marginal gain.",
-      "score": 0.81
+      "path": "test/auth.test.ts",
+      "score": 0.82,
+      "last_changed_together": "2026-09-30",
+      "reasons": [
+        "changed together with src/auth.ts in 14 of 17 commits (recency-weighted confidence 82%)"
+      ]
     }
   ],
-  "token_count": 1842
+  "unknown_files": []
 }
 ```
 
-Code context and architectural memories in one call.
+`unknown_files` lists inputs with no history (new files, ignored files).
 
 ---
 
-## How ranking works
+## CLI
 
-```
-final_score = 0.55 × semantic_similarity
-            + 0.20 × graph_proximity      ← distance to active file in the import graph
-            + 0.15 × co-edit score        ← files historically changed in the same session
-            + 0.10 × recency              ← how recently the file was modified
-```
+| Command | What it does |
+|---------|--------------|
+| `context-pilot init [path]` | Create `.context-pilot/config.json` |
+| `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
+| `context-pilot co-changes <files...>` | Files that change together with the given ones (`--json`, `-n`, `--min-support`) |
+| `context-pilot status [path]` | Index and history stats |
+| `context-pilot serve [path]` | Start the MCP server (`--watch` keeps the import graph live) |
 
-All signals are derived automatically — no config, no annotations.
-
-- **Graph** is built from import statements at index time
-- **Co-edit** is learned from your watcher sessions: every time files change together, their relationship strengthens
-- **Recency** comes from filesystem `mtime`
+Mining is incremental: re-running only reads commits since the last run. History
+rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 
 ---
 
@@ -311,47 +158,29 @@ All signals are derived automatically — no config, no annotations.
 | Layer | Technology |
 |-------|-----------|
 | MCP server | `@modelcontextprotocol/sdk` |
-| Embeddings | `@huggingface/transformers` — ONNX, local, `all-MiniLM-L6-v2` (384 dims) |
+| History | `git log --name-status -M` — no libgit bindings |
 | Code parsing | `web-tree-sitter` — WASM, no node-gyp |
-| Storage | `node:sqlite` — built-in Node.js 22, zero native compilation |
-| Runtime | TypeScript / Node.js 22 — everything in one language |
-
-Zero Python. Zero Docker. Zero native modules that break on CI.
-
----
-
-## Supported languages
-
-| Language | Status |
-|----------|--------|
-| TypeScript / TSX | Supported |
-| JavaScript / JSX | Supported |
-| Python | Supported |
-| Go | Planned |
-| Rust | Planned |
+| Storage | `node:sqlite` — built into Node.js 22, at `~/.context-pilot/db.sqlite` |
+| Runtime | TypeScript / Node.js 22 |
 
 ---
 
 ## Roadmap
 
-- [x] MCP server with 5 tools
-- [x] TypeScript-native embedding engine (no Python required)
-- [x] Import graph — built from source during indexing
-- [x] Ranking: semantic + graph proximity + recency
-- [x] Semantic memory — architectural decisions embedded and retrieved
-- [x] CLI (`init`, `index`, `status`, `serve`, `session-save`, `session-recall`)
-- [x] Incremental indexing + file watcher (`--watch`)
-- [x] Co-edit signal — files historically edited together are boosted in ranking
-- [x] Visual UI — `context-pilot ui` opens a local dashboard (graph, search, memories, status)
-- [x] Session persistence — save and recall notes, TODOs, decisions between sessions
-- [ ] VSCode extension (zero-config install)
-- [ ] Go / Rust language support
+- [x] Git co-change mining — support, recency-weighted confidence, rename tracking, noise filters
+- [x] `co_changes` MCP tool and CLI command
+- [x] Import graph from source (TS/JS, Python, PHP)
+- [ ] Backtesting: measure how well co-changes predict the rest of real past commits
+- [ ] Impact engine: combine co-changes with dependents (direct + transitive) and related tests, with reasons
+- [ ] `impact_of` / `check_change` tools and `context-pilot check` for staged changes (pre-commit / agent hook)
+- [ ] Symbol-level references ("who calls this function")
+- [ ] Impact visualizer (the old dashboard is parked in `parked/ui-server`)
 
 ---
 
 ## Contributing
 
-Early stage. Issues, ideas, and PRs are very welcome.
+Early stage. Issues, ideas and PRs are very welcome.
 
 ## License
 

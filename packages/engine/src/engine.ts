@@ -1,36 +1,46 @@
-import { join } from "path";
+import { existsSync } from "fs";
 import { homedir } from "os";
-import { randomUUID } from "crypto";
+import { isAbsolute, join, relative } from "path";
 import type { DatabaseSync } from "node:sqlite";
-import type { IContextEngine, IndexResult, SearchResult, StatusResult, SubgraphResult, MemorySearchResult } from "./types.js";
+import type {
+  CoChangeQuery,
+  CoChangeResponse,
+  HistoryResult,
+  IContextEngine,
+  IndexResult,
+  StatusResult,
+  SubgraphResult,
+} from "./types.js";
 import {
   openDatabase,
-  getAllEmbeddings,
   getProjectStats,
   getProjectGraphEdges,
-  getChunksByIds,
-  upsertProject,
-  upsertMemoryEmbedding,
-  getMemoryEmbeddings,
-  recordCoEdits,
-  getCoEditScores,
+  getCoChangeState,
+  getCoChangeStats,
+  getCoChangeFileStats,
+  getCoChangePartners,
 } from "./storage/sqlite.js";
-import { initEmbedder, embedSingle, embedTexts } from "./embedder/embedder.js";
 import { initTreeSitter } from "./indexer/languages.js";
 import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
-import { semanticSearch, cosineSimilarity } from "./search/search.js";
 import { DiGraph } from "./graph/graph.js";
-import type { EmbeddingCandidate } from "./types.js";
+import { mineHistory } from "./history/miner.js";
+import { combineCoChanges } from "./history/cochange.js";
 
-const MODEL = "all-MiniLM-L6-v2";
-const EMBED_BATCH = 64;
+const DEFAULT_MIN_SUPPORT = 2;
+const DEFAULT_MIN_CONFIDENCE = 0.1;
+const DEFAULT_COCHANGE_LIMIT = 10;
+
+/** Normalizes a user-supplied path to the project-relative, forward-slash form used in storage. */
+export function toProjectPath(projectPath: string, file: string): string {
+  const rel = isAbsolute(file) ? relative(projectPath, file) : file;
+  return rel.replace(/\\/g, "/").replace(/^\.\//, "");
+}
 
 export class ContextEngine implements IContextEngine {
   private db: DatabaseSync;
   private _initialized = false;
 
-  // Per-project caches
-  private embeddingsCache = new Map<string, EmbeddingCandidate[]>();
+  // Per-project cache, invalidated on re-index
   private graphCache = new Map<string, DiGraph>();
 
   constructor(dbPath?: string) {
@@ -40,62 +50,26 @@ export class ContextEngine implements IContextEngine {
 
   async init(): Promise<void> {
     if (this._initialized) return;
-    process.stderr.write("[engine] initializing tree-sitter...\n");
     await initTreeSitter();
-    process.stderr.write("[engine] loading embedding model (first run may download ~90MB)...\n");
-    await initEmbedder();
     this._initialized = true;
-    process.stderr.write("[engine] ready\n");
   }
 
   async index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult> {
     if (!this._initialized) await this.init();
 
     const pid = projectId(params.projectPath);
-    // Invalidate caches for this project
-    this.embeddingsCache.delete(pid);
     this.graphCache.delete(pid);
 
     try {
-      let filesIndexed: number;
-      let filesSkipped: number;
-      let totalFiles: number;
-
       if (params.paths && params.paths.length > 0) {
-        // Targeted re-index of specific files (used by watcher)
-        ({ filesIndexed, filesSkipped, totalFiles } = await indexSpecificFiles(
-          this.db,
-          params.projectPath,
-          params.paths,
-          params.force ?? false
-        ));
-
-        // Record co-edit relationships for all files changed in this session window
-        const { relative } = await import("path");
-        const relPaths = params.paths.map((p) =>
-          relative(params.projectPath, p).replace(/\\/g, "/")
-        );
-        recordCoEdits(this.db, pid, relPaths);
-      } else {
-        // Full project index
-        ({ filesIndexed, filesSkipped, totalFiles } = await indexProject(
-          this.db,
-          params.projectPath,
-          params.force ?? false
-        ));
+        // Targeted re-index of specific files (used by watcher); history only changes on commit
+        const counts = await indexSpecificFiles(this.db, params.projectPath, params.paths, params.force ?? false);
+        return { success: true, projectId: pid, projectPath: params.projectPath, ...counts };
       }
 
-      // Embed any chunks that don't have embeddings yet
-      await this._embedNewChunks(pid);
-
-      return {
-        success: true,
-        projectId: pid,
-        projectPath: params.projectPath,
-        filesIndexed,
-        filesSkipped,
-        totalFiles,
-      };
+      const counts = await indexProject(this.db, params.projectPath, params.force ?? false);
+      const history = await this.mineHistory({ projectPath: params.projectPath, force: params.force });
+      return { success: true, projectId: pid, projectPath: params.projectPath, ...counts, history };
     } catch (err) {
       return {
         success: false,
@@ -109,65 +83,36 @@ export class ContextEngine implements IContextEngine {
     }
   }
 
-  async search(params: {
-    query: string;
-    projectPath: string;
-    k?: number;
-    filterType?: string;
-  }): Promise<{ results: SearchResult[] }> {
-    if (!this._initialized) await this.init();
-
-    const pid = projectId(params.projectPath);
-    const candidates = await this._getEmbeddings(pid);
-
-    if (candidates.length === 0) {
-      return { results: [] };
+  async mineHistory(params: { projectPath: string; force?: boolean; maxCommits?: number }): Promise<HistoryResult> {
+    try {
+      return await mineHistory(this.db, projectId(params.projectPath), params.projectPath, params);
+    } catch (err) {
+      return { status: "error", commitsProcessed: 0, commitsSkipped: 0, files: 0, pairs: 0, error: String(err) };
     }
-
-    const queryVec = await embedSingle(params.query);
-    const raw = semanticSearch(queryVec, candidates, params.k ?? 10, params.filterType);
-
-    // Include last_modified from the candidate data
-    const candidateMap = new Map(candidates.map((c) => [c.chunkId, c]));
-    const results: SearchResult[] = raw.map((r) => ({
-      ...r,
-      last_modified: candidateMap.get(r.chunk_id)?.lastModified,
-    }));
-
-    return { results };
   }
 
-  async searchMemories(params: {
-    query: string;
-    projectPath: string;
-    k?: number;
-  }): Promise<{ results: MemorySearchResult[] }> {
-    if (!this._initialized) await this.init();
-
+  coChanges(params: CoChangeQuery): CoChangeResponse {
     const pid = projectId(params.projectPath);
-    const memoryEmbeddings = getMemoryEmbeddings(this.db, pid);
+    const historyAvailable = getCoChangeState(this.db, pid) !== undefined;
+    const sources = [...new Set(params.files.map((f) => toProjectPath(params.projectPath, f)))];
 
-    if (memoryEmbeddings.length === 0) {
-      return { results: [] };
-    }
+    const stats = getCoChangeFileStats(this.db, pid, sources);
+    const unknownFiles = sources.filter((s) => !stats.has(s));
+    const sourceSet = new Set(sources);
 
-    const queryVec = await embedSingle(params.query);
-    const k = params.k ?? 5;
+    const rows = sources
+      .flatMap((s) => getCoChangePartners(this.db, pid, s))
+      .filter((r) => !sourceSet.has(r.candidate));
 
-    const scored = memoryEmbeddings
-      .map((m) => ({ ...m, score: cosineSimilarity(queryVec, m.vector) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, k);
+    const results = combineCoChanges(rows, stats, {
+      minSupport: params.minSupport ?? DEFAULT_MIN_SUPPORT,
+      minConfidence: params.minConfidence ?? DEFAULT_MIN_CONFIDENCE,
+    })
+      // History remembers deleted files; only suggest what still exists
+      .filter((r) => existsSync(join(params.projectPath, r.path)))
+      .slice(0, params.limit ?? DEFAULT_COCHANGE_LIMIT);
 
-    return {
-      results: scored.map((m) => ({
-        id: m.memoryId,
-        memory_type: m.memoryType,
-        content: m.content,
-        score: m.score,
-        created_at: m.createdAt,
-      })),
-    };
+    return { results, unknownFiles, historyAvailable };
   }
 
   async status(params: { projectPath: string }): Promise<StatusResult> {
@@ -181,6 +126,7 @@ export class ContextEngine implements IContextEngine {
     }
 
     const stats = getProjectStats(this.db, pid);
+    const state = getCoChangeState(this.db, pid);
     return {
       indexed: project.indexed_at !== null,
       projectId: pid,
@@ -188,6 +134,13 @@ export class ContextEngine implements IContextEngine {
       files: stats.files,
       chunks: stats.chunks,
       indexedAt: project.indexed_at ?? undefined,
+      history: state && {
+        headSha: state.head_sha,
+        minedAt: state.mined_at,
+        commitsProcessed: state.commits_processed,
+        commitsSkipped: state.commits_skipped,
+        ...getCoChangeStats(this.db, pid),
+      },
     };
   }
 
@@ -198,7 +151,7 @@ export class ContextEngine implements IContextEngine {
     direction?: string;
   }): Promise<SubgraphResult> {
     const pid = projectId(params.projectPath);
-    const g = await this._getGraph(pid);
+    const g = this._getGraph(pid);
 
     // Find root node — match by name or path
     let rootId: string | undefined;
@@ -232,133 +185,15 @@ export class ContextEngine implements IContextEngine {
     };
   }
 
-  async graphDistances(params: {
-    projectPath: string;
-    activeChunkId: string;
-    candidateIds: string[];
-  }): Promise<{ distances: Record<string, number> }> {
-    const pid = projectId(params.projectPath);
-    const g = await this._getGraph(pid);
-    const distances = g.shortestPathDistances(params.activeChunkId, params.candidateIds);
-    return { distances };
-  }
-
-  async remember(params: {
-    projectPath: string;
-    sessionId: string;
-    memoryType: "decision" | "pattern" | "todo" | "context_note";
-    content: string;
-  }): Promise<{ id: string; success: boolean }> {
-    if (!this._initialized) await this.init();
-    const pid = projectId(params.projectPath);
-    upsertProject(this.db, pid, params.projectPath);
-    const id = randomUUID();
-    this.db.prepare(`
-      INSERT INTO memories (id, project_id, session_id, memory_type, content, relevance_score, created_at)
-      VALUES (?, ?, ?, ?, ?, 1.0, ?)
-    `).run(id, pid, params.sessionId, params.memoryType, params.content, Date.now());
-
-    // Store embedding so memories are semantically searchable
-    try {
-      const vector = await embedSingle(params.content);
-      upsertMemoryEmbedding(this.db, id, vector, MODEL);
-    } catch {
-      // non-critical — memory is stored even without embedding
-    }
-
-    return { id, success: true };
-  }
-
-  getCoEditScores(params: {
-    projectPath: string;
-    activeFilePath: string;
-    candidatePaths: string[];
-  }): Record<string, number> {
-    const pid = projectId(params.projectPath);
-    return getCoEditScores(this.db, pid, params.activeFilePath, params.candidatePaths);
-  }
-
-  async getFileGraph(params: { projectPath: string }): Promise<{
-    nodes: Array<{ id: string; path: string; language: string; chunkCount: number }>;
-    edges: Array<{ from: string; to: string }>;
-  }> {
-    const pid = projectId(params.projectPath);
-
-    const files = this.db.prepare(`
-      SELECT f.id, f.path, COALESCE(f.language, 'unknown') as language, COUNT(c.id) as chunk_count
-      FROM files f
-      LEFT JOIN chunks c ON c.file_id = f.id
-      WHERE f.project_id = ?
-      GROUP BY f.id
-      ORDER BY chunk_count DESC
-      LIMIT 400
-    `).all(pid) as Array<{ id: string; path: string; language: string; chunk_count: number }>;
-
-    const edges = this.db.prepare(`
-      SELECT DISTINCT f1.id AS from_file, f2.id AS to_file
-      FROM graph_edges ge
-      JOIN chunks c1 ON c1.id = ge.from_chunk
-      JOIN files f1 ON f1.id = c1.file_id
-      JOIN chunks c2 ON c2.id = ge.to_chunk
-      JOIN files f2 ON f2.id = c2.file_id
-      WHERE f1.project_id = ? AND f1.id != f2.id
-    `).all(pid) as Array<{ from_file: string; to_file: string }>;
-
-    // Only include edges where both nodes are in our limited node set
-    const nodeIds = new Set(files.map((f) => f.id));
-    const filteredEdges = edges.filter(
-      (e) => nodeIds.has(e.from_file) && nodeIds.has(e.to_file)
-    );
-
-    return {
-      nodes: files.map((f) => ({
-        id: f.id,
-        path: f.path,
-        language: f.language,
-        chunkCount: f.chunk_count,
-      })),
-      edges: filteredEdges.map((e) => ({ from: e.from_file, to: e.to_file })),
-    };
-  }
-
-  async listMemories(params: { projectPath: string }): Promise<{ memories: import("./types.js").MemoryRecord[] }> {
-    const pid = projectId(params.projectPath);
-    const memories = this.db.prepare(`
-      SELECT id, memory_type, content, session_id, relevance_score, created_at
-      FROM memories
-      WHERE project_id = ?
-      ORDER BY created_at DESC
-    `).all(pid) as unknown as import("./types.js").MemoryRecord[];
-    return { memories };
-  }
-
-  async deleteMemory(params: { projectPath: string; memoryId: string }): Promise<{ success: boolean }> {
-    const pid = projectId(params.projectPath);
-    const result = this.db
-      .prepare(`DELETE FROM memories WHERE id = ? AND project_id = ?`)
-      .run(params.memoryId, pid) as { changes: number };
-    return { success: result.changes > 0 };
-  }
-
   close(): void {
     this.db.close();
   }
 
-  // ── Private helpers ──────────────────────────────────────────────────────────
-
-  private async _getEmbeddings(projectId: string): Promise<EmbeddingCandidate[]> {
-    if (this.embeddingsCache.has(projectId)) return this.embeddingsCache.get(projectId)!;
-    const candidates = getAllEmbeddings(this.db, projectId);
-    this.embeddingsCache.set(projectId, candidates);
-    return candidates;
-  }
-
-  private async _getGraph(projectId: string): Promise<DiGraph> {
+  private _getGraph(projectId: string): DiGraph {
     if (this.graphCache.has(projectId)) return this.graphCache.get(projectId)!;
 
     const g = new DiGraph();
 
-    // Add all chunks as nodes
     const chunks = this.db.prepare(`
       SELECT c.id, c.chunk_type, c.name, f.path
       FROM chunks c JOIN files f ON f.id = c.file_id
@@ -369,57 +204,11 @@ export class ContextEngine implements IContextEngine {
       g.addNode(c.id, { chunkType: c.chunk_type, name: c.name, path: c.path });
     }
 
-    // Add edges
-    const edges = getProjectGraphEdges(this.db, projectId);
-    for (const e of edges) {
+    for (const e of getProjectGraphEdges(this.db, projectId)) {
       g.addEdge(e.from_chunk, e.to_chunk, { edgeType: e.edge_type, weight: e.weight });
     }
 
     this.graphCache.set(projectId, g);
     return g;
-  }
-
-  private async _embedNewChunks(pid: string): Promise<void> {
-    // Find chunks without embeddings
-    const unembedded = this.db.prepare(`
-      SELECT c.id, c.content
-      FROM chunks c
-      JOIN files f ON f.id = c.file_id
-      WHERE f.project_id = ?
-        AND c.id NOT IN (SELECT chunk_id FROM embeddings)
-    `).all(pid) as Array<{ id: string; content: string }>;
-
-    if (unembedded.length === 0) return;
-
-    process.stderr.write(`[engine] embedding ${unembedded.length} new chunks...\n`);
-
-    const texts = unembedded.map((c) => c.content);
-    const vectors = await embedTexts(texts);
-
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO embeddings (chunk_id, model, vector, dims, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    const { vectorToBlob } = await import("./storage/sqlite.js");
-    this.db.exec("BEGIN");
-    try {
-      for (let i = 0; i < unembedded.length; i++) {
-        stmt.run(
-          unembedded[i].id,
-          MODEL,
-          vectorToBlob(vectors[i]),
-          vectors[i].length,
-          Date.now()
-        );
-      }
-      this.db.exec("COMMIT");
-    } catch (err) {
-      this.db.exec("ROLLBACK");
-      throw err;
-    }
-
-    // Invalidate embeddings cache
-    this.embeddingsCache.delete(pid);
   }
 }

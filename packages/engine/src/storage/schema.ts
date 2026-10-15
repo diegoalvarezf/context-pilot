@@ -33,13 +33,6 @@ export function applySchema(db: DatabaseSync): void {
       metadata    TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS embeddings (
-      chunk_id   TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
-      model      TEXT NOT NULL,
-      vector     BLOB NOT NULL,
-      dims       INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
-    );
 
     CREATE TABLE IF NOT EXISTS graph_edges (
       id         TEXT PRIMARY KEY,
@@ -50,43 +43,40 @@ export function applySchema(db: DatabaseSync): void {
       weight     REAL DEFAULT 1.0
     );
 
-    CREATE TABLE IF NOT EXISTS memories (
-      id              TEXT PRIMARY KEY,
-      project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      session_id      TEXT,
-      memory_type     TEXT NOT NULL,
-      content         TEXT NOT NULL,
-      relevance_score REAL DEFAULT 1.0,
-      created_at      INTEGER NOT NULL,
-      expires_at      INTEGER
-    );
-
     CREATE INDEX IF NOT EXISTS idx_chunks_file       ON chunks(file_id);
     CREATE INDEX IF NOT EXISTS idx_files_project     ON files(project_id);
-    CREATE INDEX IF NOT EXISTS idx_embeddings_chunk  ON embeddings(chunk_id);
     CREATE INDEX IF NOT EXISTS idx_graph_from        ON graph_edges(from_chunk);
     CREATE INDEX IF NOT EXISTS idx_graph_project     ON graph_edges(project_id);
-    CREATE INDEX IF NOT EXISTS idx_memories_project  ON memories(project_id, created_at DESC);
 
-    CREATE TABLE IF NOT EXISTS memory_embeddings (
-      memory_id  TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
-      model      TEXT NOT NULL,
-      vector     BLOB NOT NULL,
-      dims       INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
+    -- Co-change statistics mined from git history (paths relative to project root).
+    -- Weights use a fixed-epoch exponential decay, see history/cochange.ts.
+    CREATE TABLE IF NOT EXISTS cochange_files (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      path       TEXT NOT NULL,
+      commits    INTEGER NOT NULL,
+      wcommits   REAL NOT NULL,
+      last_ts    INTEGER NOT NULL,
+      PRIMARY KEY (project_id, path)
     );
 
-    CREATE TABLE IF NOT EXISTS file_coedits (
-      id         TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS cochange_pairs (
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       file_a     TEXT NOT NULL,
       file_b     TEXT NOT NULL,
-      count      INTEGER NOT NULL DEFAULT 1,
-      last_seen  INTEGER NOT NULL,
-      UNIQUE(project_id, file_a, file_b)
+      support    INTEGER NOT NULL,
+      wsupport   REAL NOT NULL,
+      last_ts    INTEGER NOT NULL,
+      PRIMARY KEY (project_id, file_a, file_b)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_coedits_a ON file_coedits(project_id, file_a);
-    CREATE INDEX IF NOT EXISTS idx_coedits_b ON file_coedits(project_id, file_b);
+    CREATE INDEX IF NOT EXISTS idx_cochange_b ON cochange_pairs(project_id, file_b);
+
+    CREATE TABLE IF NOT EXISTS cochange_state (
+      project_id        TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      head_sha          TEXT NOT NULL,
+      commits_processed INTEGER NOT NULL,
+      commits_skipped   INTEGER NOT NULL,
+      mined_at          INTEGER NOT NULL
+    );
   `);
 }

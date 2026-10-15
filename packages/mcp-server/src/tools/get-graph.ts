@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { IContextEngine } from "@context-pilot/engine";
+import type { IContextEngine } from "context-pilot-engine";
 
 export const getGraphSchema = z.object({
   target: z.string().describe("File path or function name"),

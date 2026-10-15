@@ -1,6 +1,6 @@
 import { watch } from "chokidar";
 import { resolve } from "path";
-import type { IContextEngine } from "@context-pilot/engine";
+import type { IContextEngine } from "context-pilot-engine";
 
 const DEBOUNCE_MS = 1500;
 const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css"]);

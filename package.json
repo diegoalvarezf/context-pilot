@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Intelligent context middleware for AI coding agents",
+  "description": "Change-impact analysis for AI coding agents: what else changes when you touch a file",
   "workspaces": [
     "packages/*"
   ],
@@ -15,6 +15,6 @@
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   }
 }

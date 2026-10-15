@@ -1,5 +1,5 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ContextEngine } from "@context-pilot/engine";
+import { ContextEngine } from "context-pilot-engine";
 import { createServer } from "./server.js";
 
 const PROJECT_PATH = process.env.CONTEXT_PILOT_PROJECT ?? process.cwd();

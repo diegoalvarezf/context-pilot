@@ -2,8 +2,8 @@ import { Command } from "commander";
 import { resolve, join } from "path";
 import { existsSync } from "fs";
 import chalk from "chalk";
-import { ContextEngine } from "@context-pilot/engine";
-import { createServer } from "@context-pilot/mcp-server/server.js";
+import { ContextEngine } from "context-pilot-engine";
+import { createServer } from "context-pilot-mcp-server/server.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { startWatcher } from "../watcher.js";
 

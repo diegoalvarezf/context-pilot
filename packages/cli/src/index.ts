@@ -1,26 +1,6 @@
 #!/usr/bin/env node
-import { Command } from "commander";
-import { initCommand } from "./commands/init.js";
-import { statusCommand } from "./commands/status.js";
-import { serveCommand } from "./commands/serve.js";
-import { indexCommand } from "./commands/index.js";
-import { uiCommand } from "./commands/ui.js";
-import { sessionSaveCommand } from "./commands/session-save.js";
-import { sessionRecallCommand } from "./commands/session-recall.js";
+// Install the warning filter before anything loads node:sqlite (ESM loads
+// static imports during linking, before any module body runs).
+import "./quiet-warnings.js";
 
-const program = new Command();
-
-program
-  .name("context-pilot")
-  .description("Intelligent context middleware for AI coding agents")
-  .version("0.1.0");
-
-program.addCommand(initCommand);
-program.addCommand(statusCommand);
-program.addCommand(serveCommand);
-program.addCommand(indexCommand);
-program.addCommand(uiCommand);
-program.addCommand(sessionSaveCommand);
-program.addCommand(sessionRecallCommand);
-
-program.parse();
+await import("./main.js");
