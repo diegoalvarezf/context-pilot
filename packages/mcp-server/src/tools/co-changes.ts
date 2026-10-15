@@ -10,7 +10,6 @@ export const coChangesSchema = z.object({
   min_support: z
     .number()
     .optional()
-    .default(2)
     .describe("Minimum number of past commits where the files changed together"),
 });
 
@@ -25,7 +24,7 @@ export async function handleCoChanges(
     projectPath,
     files: input.files,
     limit: input.limit ?? 10,
-    minSupport: input.min_support ?? 2,
+    minSupport: input.min_support,
   });
 
   if (!response.historyAvailable) {

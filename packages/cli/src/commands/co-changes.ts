@@ -1,14 +1,14 @@
 import { Command } from "commander";
 import { resolve } from "path";
 import chalk from "chalk";
-import { ContextEngine } from "context-pilot-engine";
+import { ContextEngine, DEFAULT_MIN_SUPPORT } from "context-pilot-engine";
 
 export const coChangesCommand = new Command("co-changes")
   .description("Show files that historically change together with the given files")
   .argument("<files...>", "Files you are changing")
   .option("-p, --project <path>", "Project root path", ".")
   .option("-n, --limit <n>", "Max files to show", "10")
-  .option("--min-support <n>", "Minimum shared commits", "2")
+  .option("--min-support <n>", "Minimum shared commits", String(DEFAULT_MIN_SUPPORT))
   .option("--json", "Output raw JSON", false)
   .action(
     async (

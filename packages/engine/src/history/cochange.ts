@@ -43,6 +43,9 @@ export interface MineResult {
 }
 
 export const DEFAULT_MAX_FILES_PER_COMMIT = 30;
+/** Calibrated with `context-pilot backtest` (see CLAUDE.md) */
+export const DEFAULT_MIN_SUPPORT = 1;
+export const DEFAULT_MIN_CONFIDENCE = 0.1;
 
 const IGNORED_BASENAMES = new Set([
   "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "composer.lock",
@@ -146,9 +149,11 @@ export interface CoChangeSource {
   sourceCommits: number;
 }
 
+export type CombineMethod = "noisy-or" | "max" | "mean";
+
 export interface CoChangeResult {
   path: string;
-  /** Noisy-OR of per-source confidences, in [0,1] */
+  /** Per-source confidences combined (noisy-OR by default), in [0,1] */
   score: number;
   support: number;
   lastChangedTogether: number;
@@ -156,13 +161,15 @@ export interface CoChangeResult {
 }
 
 /**
- * Combines evidence from several changed files. A candidate that co-changes with
- * many of them scores higher than one tied to a single file (noisy-OR).
+ * Combines evidence from several changed files. With noisy-OR (default) a candidate
+ * that co-changes with many of them scores higher than one tied to a single file.
+ * `mean` averages over `sourceCount` query files (default: distinct sources in `rows`),
+ * so sources without a link to the candidate count as 0.
  */
 export function combineCoChanges(
   rows: Array<{ source: string; candidate: string; support: number; wsupport: number; lastTs: number }>,
   sourceStats: Map<string, { commits: number; wcommits: number }>,
-  opts: { minSupport: number; minConfidence: number }
+  opts: { minSupport: number; minConfidence: number; combine?: CombineMethod; sourceCount?: number }
 ): CoChangeResult[] {
   const byCandidate = new Map<string, CoChangeResult>();
 
@@ -182,9 +189,18 @@ export function combineCoChanges(
     entry.lastChangedTogether = Math.max(entry.lastChangedTogether, row.lastTs);
   }
 
+  const combine = opts.combine ?? "noisy-or";
+  const sourceCount = Math.max(1, opts.sourceCount ?? new Set(rows.map((r) => r.source)).size);
+
   for (const entry of byCandidate.values()) {
     entry.sources.sort((a, b) => b.confidence - a.confidence);
-    entry.score = 1 - entry.sources.reduce((acc, s) => acc * (1 - s.confidence), 1);
+    if (combine === "max") {
+      entry.score = entry.sources[0].confidence;
+    } else if (combine === "mean") {
+      entry.score = entry.sources.reduce((acc, s) => acc + s.confidence, 0) / sourceCount;
+    } else {
+      entry.score = 1 - entry.sources.reduce((acc, s) => acc * (1 - s.confidence), 1);
+    }
   }
 
   return [...byCandidate.values()].sort((a, b) => b.score - a.score || b.support - a.support);

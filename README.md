@@ -145,6 +145,7 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 | `context-pilot init [path]` | Create `.context-pilot/config.json` |
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
 | `context-pilot co-changes <files...>` | Files that change together with the given ones (`--json`, `-n`, `--min-support`) |
+| `context-pilot backtest [path]` | Replay past commits: how well co-changes predict the rest of each commit (precision/recall/hit-rate@k). Read-only, no `init` needed (`--test-commits`, `-k`, `--json`) |
 | `context-pilot status [path]` | Index and history stats |
 | `context-pilot serve [path]` | Start the MCP server (`--watch` keeps the import graph live) |
 
@@ -170,7 +171,7 @@ rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 - [x] Git co-change mining — support, recency-weighted confidence, rename tracking, noise filters
 - [x] `co_changes` MCP tool and CLI command
 - [x] Import graph from source (TS/JS, Python, PHP)
-- [ ] Backtesting: measure how well co-changes predict the rest of real past commits
+- [x] Backtesting: measure how well co-changes predict the rest of real past commits (`context-pilot backtest`)
 - [ ] Impact engine: combine co-changes with dependents (direct + transitive) and related tests, with reasons
 - [ ] `impact_of` / `check_change` tools and `context-pilot check` for staged changes (pre-commit / agent hook)
 - [ ] Symbol-level references ("who calls this function")

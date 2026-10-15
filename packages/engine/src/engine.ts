@@ -24,10 +24,8 @@ import { initTreeSitter } from "./indexer/languages.js";
 import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
 import { DiGraph } from "./graph/graph.js";
 import { mineHistory } from "./history/miner.js";
-import { combineCoChanges } from "./history/cochange.js";
+import { combineCoChanges, DEFAULT_MIN_CONFIDENCE, DEFAULT_MIN_SUPPORT } from "./history/cochange.js";
 
-const DEFAULT_MIN_SUPPORT = 2;
-const DEFAULT_MIN_CONFIDENCE = 0.1;
 const DEFAULT_COCHANGE_LIMIT = 10;
 
 /** Normalizes a user-supplied path to the project-relative, forward-slash form used in storage. */

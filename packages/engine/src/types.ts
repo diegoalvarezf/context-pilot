@@ -80,7 +80,7 @@ export interface CoChangeQuery {
   /** Files being changed — absolute, or relative to the project root */
   files: string[];
   limit?: number;
-  /** Minimum number of shared commits (default 2) */
+  /** Minimum number of shared commits (default 1) */
   minSupport?: number;
   /** Minimum recency-weighted confidence (default 0.1) */
   minConfidence?: number;
