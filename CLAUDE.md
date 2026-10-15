@@ -12,8 +12,8 @@ Mines git history for co-changes and builds an import graph. MCP-compatible, 100
 ```
 packages/
 ├── engine/        # context-pilot-engine — git co-change mining, indexer, import graph, SQLite storage
-├── mcp-server/    # context-pilot-mcp-server — 4 MCP tools, bridges AI client ↔ engine
-└── cli/           # context-pilot — init, index, status, serve, impact, co-changes, backtest
+├── mcp-server/    # context-pilot-mcp-server — 5 MCP tools, bridges AI client ↔ engine
+└── cli/           # context-pilot — init, index, status, serve, impact, check, co-changes, backtest
 parked/
 └── ui-server/     # old web dashboard, excluded from the workspace (to be revived as impact visualizer)
 ```
@@ -35,6 +35,7 @@ parked/
 | `engine/src/history/git.ts` | Runs `git log --name-status -M --relative`, parses it (`parseGitLog`) |
 | `engine/src/history/cochange.ts` | Pure aggregation: per-file/per-pair stats, rename resolution, noise filters, noisy-OR combination |
 | `engine/src/history/miner.ts` | Full vs incremental mining, writes to SQLite |
+| `engine/src/history/diff.ts` | Read-only working-tree changes (`git diff --name-status` vs HEAD / index / merge-base + untracked) |
 | `engine/src/history/backtest.ts` | Backtesting: pure replay (`backtestCoChanges`) + read-only git wrapper (`backtestRepo`) |
 | `engine/src/indexer/indexer.ts` | Parses files with tree-sitter, stores chunks + `file_imports`; `scanImportGraph` is the DB-free variant |
 | `engine/src/indexer/chunker.ts` | Chunks + `extractImports` (import/export-from/require/import(), Python, PHP use/require) |
@@ -87,6 +88,7 @@ so noisy-OR stays. With so little history these numbers are noisy: re-calibrate 
 | Tool | Handler |
 |------|---------|
 | `impact_of` | `mcp-server/src/tools/impact-of.ts` |
+| `check_change` | `mcp-server/src/tools/check-change.ts` |
 | `co_changes` | `mcp-server/src/tools/co-changes.ts` |
 | `index_project` | `mcp-server/src/tools/index-project.ts` |
 | `get_graph` | `mcp-server/src/tools/get-graph.ts` |
@@ -125,12 +127,18 @@ pnpm test          # run all tests (vitest, engine package)
   `defaultIgnore`. Takeaways: git co-changes carry most of the signal; the import graph adds a little recall@10 and
   answers files without history, at a small precision cost; the "dependency" signal only hurt precision. With an
   import graph from today the graph numbers are slightly optimistic. Repeat on a TS/Python repo before trusting more.
+- Check (phase 4, `checkChange`): changed files = `git diff` vs HEAD (or `--cached`, or merge-base with `--base`)
+  + untracked; renamed-away and deleted paths are queried too; ignored files dropped; > 30 files = skipped as bulk.
+  Reports impact results not in the change whose *strongest single signal* ≥ `minScore` (0.3) — the noisy-OR score
+  saturates when many files change, so it only sorts. On express, 0.3 is quiet (best partners score 24–45%);
+  the threshold is not calibrated yet
 - Project ids: `projectId()` normalizes the root path (resolve, forward slashes, lower case on Windows)
 
 ## Current status
 - Done: phase 0 (cleanup), phase 1 (git co-changes), phase 5 (backtesting), phase 3 (impact engine: `impact_of`
-  MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`).
-- Next: phase 4 — `check_change` MCP tool and `context-pilot check` (staged/unstaged diff → files you likely forgot;
-  pre-commit / Claude Code hook), then phase 2 symbol-level references.
+  MCP tool, `context-pilot impact`, file-level import graph with better resolution, `backtest --with-graph`),
+  phase 4 (`check_change` MCP tool, `context-pilot check` with `--staged` / `--base` / `--strict`).
+- Next: calibrate the check threshold (precision per score bucket in backtests), ship a ready-made pre-commit /
+  Claude Code hook, then phase 2 symbol-level references.
 - Known: calibrated on express only (plain JS) — repeat on a TS / Python / PHP repo; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.

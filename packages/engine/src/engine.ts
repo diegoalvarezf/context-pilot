@@ -3,6 +3,8 @@ import { homedir } from "os";
 import { isAbsolute, join, relative } from "path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  CheckQuery,
+  CheckResponse,
   CoChangeQuery,
   CoChangeResponse,
   ImpactQuery,
@@ -29,11 +31,20 @@ import { initTreeSitter } from "./indexer/languages.js";
 import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
 import { DiGraph } from "./graph/graph.js";
 import { mineHistory } from "./history/miner.js";
-import { combineCoChanges, DEFAULT_MIN_CONFIDENCE, DEFAULT_MIN_SUPPORT } from "./history/cochange.js";
+import {
+  combineCoChanges,
+  defaultIgnore,
+  DEFAULT_MAX_FILES_PER_COMMIT,
+  DEFAULT_MIN_CONFIDENCE,
+  DEFAULT_MIN_SUPPORT,
+} from "./history/cochange.js";
+import { isGitRepo } from "./history/git.js";
+import { readWorkingChanges } from "./history/diff.js";
 
 const DEFAULT_COCHANGE_LIMIT = 10;
 // Co-change candidates fed into impact scoring, before the final limit
 const IMPACT_COCHANGE_POOL = 50;
+export const DEFAULT_CHECK_MIN_SCORE = 0.3;
 
 /** Normalizes a user-supplied path to the project-relative, forward-slash form used in storage. */
 export function toProjectPath(projectPath: string, file: string): string {
@@ -142,6 +153,38 @@ export class ContextEngine implements IContextEngine {
       unknownFiles: co.unknownFiles,
       historyAvailable: co.historyAvailable,
       graphAvailable: files.length > 0,
+    };
+  }
+
+  async checkChange(params: CheckQuery): Promise<CheckResponse> {
+    const empty = { changed: [], missing: [], unknownFiles: [], historyAvailable: false, graphAvailable: false };
+    if (!(await isGitRepo(params.projectPath))) return { ...empty, skipped: "not a git repository" };
+
+    const changed = await readWorkingChanges(params.projectPath, { staged: params.staged, base: params.base });
+    // Deleted and renamed-away paths still matter: history knows their partners
+    const queried = [...new Set(changed.flatMap((c) => (c.oldPath ? [c.path, c.oldPath] : [c.path])))].filter(
+      (p) => !defaultIgnore(p)
+    );
+    if (queried.length === 0) return { ...empty, changed };
+    // Same cut-off as mining: a change this large is a bulk edit, its co-changes are noise
+    if (queried.length > DEFAULT_MAX_FILES_PER_COMMIT) {
+      return { ...empty, changed, skipped: `${queried.length} files changed (bulk change)` };
+    }
+
+    const minScore = params.minScore ?? DEFAULT_CHECK_MIN_SCORE;
+    const impact = this.impact({ projectPath: params.projectPath, files: queried, limit: IMPACT_COCHANGE_POOL });
+    const inChange = new Set(queried);
+    // Threshold on the strongest single signal: the noisy-OR score saturates when many files change
+    const missing = impact.results
+      .filter((r) => (r.signals[0]?.weight ?? 0) >= minScore && !inChange.has(r.path))
+      .slice(0, params.limit ?? DEFAULT_COCHANGE_LIMIT);
+
+    return {
+      changed,
+      missing,
+      unknownFiles: impact.unknownFiles,
+      historyAvailable: impact.historyAvailable,
+      graphAvailable: impact.graphAvailable,
     };
   }
 

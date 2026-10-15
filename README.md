@@ -60,6 +60,25 @@ $ context-pilot impact src/auth.ts
           depends on src/auth.ts (2 imports away)
 ```
 
+`context-pilot check` (MCP: `check_change`) does the same for what you have actually
+changed: it reads your uncommitted changes from git and lists likely-affected files that
+are *not* part of the change — the files you probably forgot:
+
+```
+$ context-pilot check
+
+Checked 1 changed file.
+
+You may also need to change:
+
+   86%  src/types.ts
+          changed together with src/engine.ts in 6 of 6 commits
+```
+
+It is deliberately quiet: a file is only reported when one signal on its own reaches
+`--min-score` (default 0.3). Use `--staged` in a pre-commit hook, `--base main` to check a
+whole branch, and `--strict` to exit with code 1 when something looks missing.
+
 Noise is filtered out: merge commits, bulk commits (more than 30 files: formatting,
 mass renames, vendoring), lockfiles, build output and changelogs. Renames are
 followed, so history recorded under an old path counts for the current one.
@@ -129,6 +148,7 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 | Tool | When to use |
 |------|-------------|
 | `impact_of` | Before finishing a change: what else is likely affected — co-changes, importers (direct and transitive), related tests — each with reasons |
+| `check_change` | When you think a change is done: reads the uncommitted diff (or a branch vs its base) and returns files likely missing from it, with reasons |
 | `co_changes` | Only the git signal: which files usually change with the ones you touched? |
 | `index_project` | At the start of a session or after pulling — re-parses sources and mines new commits |
 | `get_graph` | Import graph around a file: what it depends on and what depends on it |
@@ -162,6 +182,7 @@ Any MCP client works the same way: run `context-pilot serve --project <path>` ov
 | `context-pilot init [path]` | Create `.context-pilot/config.json` |
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
 | `context-pilot impact <files...>` | Likely affected files with reasons: co-changes + import graph + tests (`--json`, `-n`, `-d` depth) |
+| `context-pilot check` | Files likely missing from your uncommitted changes (`--staged`, `--base <ref>`, `--min-score`, `--strict`, `--json`) |
 | `context-pilot co-changes <files...>` | Files that change together with the given ones (`--json`, `-n`, `--min-support`) |
 | `context-pilot backtest [path]` | Replay past commits: how well co-changes predict the rest of each commit (precision/recall/hit-rate@k). Read-only, no `init` needed (`--test-commits`, `-k`, `--with-graph`, `--json`) |
 | `context-pilot status [path]` | Index and history stats |
@@ -191,7 +212,8 @@ rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 - [x] Import graph from source (TS/JS incl. `./x.js`→`x.ts`, re-exports, `require`; Python relative/absolute; PHP `use`/`require`)
 - [x] Backtesting: measure how well co-changes predict the rest of real past commits (`context-pilot backtest`)
 - [x] Impact engine: co-changes + dependents (direct + transitive) + related tests, with reasons (`impact_of`, `context-pilot impact`)
-- [ ] `check_change` tool and `context-pilot check` for staged changes (pre-commit / agent hook)
+- [x] `check_change` tool and `context-pilot check`: files likely missing from your current change (pre-commit / agent hook)
+- [ ] Calibrate the `check` threshold with backtests (precision per score bucket)
 - [ ] Symbol-level references ("who calls this function")
 - [ ] Impact visualizer (the old dashboard is parked in `parked/ui-server`)
 

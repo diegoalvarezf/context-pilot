@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { IContextEngine } from "context-pilot-engine";
 import { coChangesSchema, handleCoChanges } from "./tools/co-changes.js";
 import { impactOfSchema, handleImpactOf } from "./tools/impact-of.js";
+import { checkChangeSchema, handleCheckChange } from "./tools/check-change.js";
 import { indexProjectSchema, handleIndexProject } from "./tools/index-project.js";
 import { getGraphSchema, handleGetGraph } from "./tools/get-graph.js";
 
@@ -19,6 +20,18 @@ export function createServer(engine: IContextEngine, projectPath: string): McpSe
     impactOfSchema.shape,
     async ({ files, limit, depth }) => {
       const result = await handleImpactOf({ files, limit, depth }, engine, projectPath);
+      return { content: [{ type: "text", text: result }] };
+    }
+  );
+
+  server.tool(
+    "check_change",
+    "Reads the current uncommitted changes from git (or a branch vs its base) and returns files that are likely " +
+      "missing from the change: files that usually change together with the edited ones, their dependents and " +
+      "related tests. Call it when you think a change is done, before committing.",
+    checkChangeSchema.shape,
+    async ({ staged, base, min_score, limit }) => {
+      const result = await handleCheckChange({ staged, base, min_score, limit }, engine, projectPath);
       return { content: [{ type: "text", text: result }] };
     }
   );

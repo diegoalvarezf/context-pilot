@@ -1,4 +1,5 @@
-export { ContextEngine, toProjectPath } from "./engine.js";
+export { ContextEngine, toProjectPath, DEFAULT_CHECK_MIN_SCORE } from "./engine.js";
+export { parseNameStatus, readWorkingChanges } from "./history/diff.js";
 export { openDatabase } from "./storage/sqlite.js";
 export { parseGitLog } from "./history/git.js";
 export {
@@ -26,6 +27,9 @@ export type {
   CoChangeResult,
   CoChangeSource,
   ImpactQuery,
+  CheckQuery,
+  CheckResponse,
+  WorkingChange,
   ImpactResponse,
   ImpactResult,
   ImpactSignal,

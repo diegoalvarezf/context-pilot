@@ -1,5 +1,6 @@
 import type { CoChangeResult } from "./history/cochange.js";
 import type { ImpactResult } from "./impact/impact.js";
+import type { WorkingChange } from "./history/diff.js";
 
 export interface Chunk {
   id: string;
@@ -112,12 +113,39 @@ export interface ImpactResponse {
   graphAvailable: boolean;
 }
 
+export type { WorkingChange } from "./history/diff.js";
+
+export interface CheckQuery {
+  projectPath: string;
+  /** Only staged changes (pre-commit); default: staged + unstaged + untracked vs HEAD */
+  staged?: boolean;
+  /** Compare against the merge-base with this ref (branch / PR review) */
+  base?: string;
+  /** Only report files whose strongest single signal reaches this (default 0.3) */
+  minScore?: number;
+  limit?: number;
+}
+
+export interface CheckResponse {
+  /** Files in the change, as git reports them */
+  changed: WorkingChange[];
+  /** Likely affected files that are not part of the change */
+  missing: ImpactResult[];
+  /** Changed files with no co-change history (new or ignored) */
+  unknownFiles: string[];
+  historyAvailable: boolean;
+  graphAvailable: boolean;
+  /** Set when the change is too big to say anything useful (bulk / refactor) */
+  skipped?: string;
+}
+
 export interface IContextEngine {
   init(): Promise<void>;
   index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
   mineHistory(params: { projectPath: string; force?: boolean; maxCommits?: number }): Promise<HistoryResult>;
   coChanges(params: CoChangeQuery): CoChangeResponse;
   impact(params: ImpactQuery): ImpactResponse;
+  checkChange(params: CheckQuery): Promise<CheckResponse>;
   status(params: { projectPath: string }): Promise<StatusResult>;
   graph(params: {
     target: string;
