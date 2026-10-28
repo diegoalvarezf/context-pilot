@@ -19,7 +19,7 @@
     "context-pilot": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint src",
     "test": "vitest run",
