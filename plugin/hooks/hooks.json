@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "npx -y context-pilot@0.5.0 hint --claude-hook", "timeout": 60 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "npx -y context-pilot@0.5.0 check --claude-hook -p \"$CLAUDE_PROJECT_DIR\"", "timeout": 60 }
+        ]
+      }
+    ]
+  }
+}

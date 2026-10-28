@@ -53,32 +53,48 @@ export interface ClaudeSettings {
 
 const isOurs = (h: ClaudeCommandHook) => typeof h.command === "string" && h.command.includes(CLAUDE_HOOK_FLAG);
 
-/** Removes our Stop hook from Claude Code settings, dropping groups and keys left empty. */
-export function removeClaudeStopHook(settings: ClaudeSettings): ClaudeSettings {
-  const groups = settings.hooks?.Stop;
+/** Claude Code hook events we install: Stop runs `check`, PostToolUse runs `hint` after edits */
+export type ClaudeHookEvent = "Stop" | "PostToolUse";
+
+/** Tools that edit files, for the PostToolUse matcher */
+export const EDIT_TOOLS_MATCHER = "Edit|Write|MultiEdit|NotebookEdit";
+
+/** Removes our hook for `event` from Claude Code settings, dropping groups and keys left empty. */
+export function removeClaudeHook(settings: ClaudeSettings, event: ClaudeHookEvent): ClaudeSettings {
+  const groups = settings.hooks?.[event];
   if (!groups) return settings;
   const kept = groups
     .map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isOurs(h)) }))
     .filter((g) => g.hooks.length > 0);
   const hooks = { ...settings.hooks };
-  if (kept.length) hooks.Stop = kept;
-  else delete hooks.Stop;
+  if (kept.length) hooks[event] = kept;
+  else delete hooks[event];
   const next: ClaudeSettings = { ...settings, hooks };
   if (Object.keys(hooks).length === 0) delete next.hooks;
   return next;
 }
 
-/** Adds (or replaces) our Stop hook, keeping every other setting and hook. */
-export function addClaudeStopHook(settings: ClaudeSettings, command: string): ClaudeSettings {
-  const base = removeClaudeStopHook(settings);
+/** Adds (or replaces) our hook for `event`, keeping every other setting and hook. */
+export function addClaudeHook(
+  settings: ClaudeSettings,
+  event: ClaudeHookEvent,
+  command: string,
+  matcher?: string
+): ClaudeSettings {
+  const base = removeClaudeHook(settings, event);
   const hooks = { ...base.hooks };
-  hooks.Stop = [...(hooks.Stop ?? []), { hooks: [{ type: "command", command }] }];
+  const group: ClaudeHookGroup = { ...(matcher ? { matcher } : {}), hooks: [{ type: "command", command }] };
+  hooks[event] = [...(hooks[event] ?? []), group];
   return { ...base, hooks };
 }
 
-export function hasClaudeStopHook(settings: ClaudeSettings): boolean {
-  return (settings.hooks?.Stop ?? []).some((g) => (g.hooks ?? []).some(isOurs));
+export function hasClaudeHook(settings: ClaudeSettings, event: ClaudeHookEvent): boolean {
+  return (settings.hooks?.[event] ?? []).some((g) => (g.hooks ?? []).some(isOurs));
 }
+
+export const removeClaudeStopHook = (s: ClaudeSettings) => removeClaudeHook(s, "Stop");
+export const addClaudeStopHook = (s: ClaudeSettings, command: string) => addClaudeHook(s, "Stop", command);
+export const hasClaudeStopHook = (s: ClaudeSettings) => hasClaudeHook(s, "Stop");
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -1,6 +1,6 @@
 {
   "name": "context-pilot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "CLI for context-pilot \u2014 change-impact analysis for AI coding agents",
   "license": "MIT",
   "repository": {

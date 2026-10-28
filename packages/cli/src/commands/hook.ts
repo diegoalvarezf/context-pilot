@@ -5,12 +5,13 @@ import chalk from "chalk";
 import { gitHooksDir } from "context-pilot-engine";
 import { CLI_VERSION } from "../version.js";
 import {
-  addClaudeStopHook,
+  addClaudeHook,
   addHookBlock,
   CLAUDE_HOOK_FLAG,
-  hasClaudeStopHook,
+  EDIT_TOOLS_MATCHER,
+  hasClaudeHook,
   hasHookBlock,
-  removeClaudeStopHook,
+  removeClaudeHook,
   removeHookBlock,
   shQuote,
   type ClaudeSettings,
@@ -62,10 +63,15 @@ export async function installHooks(root: string, opts: { strict: boolean; claude
   if (opts.claude) {
     const path = claudeSettingsPath(root);
     const settings = readJson(path);
-    const command = `${launcher.map((a) => `"${a}"`).join(" ")} check ${CLAUDE_HOOK_FLAG} -p "${root.replace(/\\/g, "/")}"`;
+    const cli = launcher.map((a) => `"${a}"`).join(" ");
+    const project = `-p "${root.replace(/\\/g, "/")}"`;
+    let next = addClaudeHook(settings, "Stop", `${cli} check ${CLAUDE_HOOK_FLAG} ${project}`);
+    next = addClaudeHook(next, "PostToolUse", `${cli} hint ${CLAUDE_HOOK_FLAG} ${project}`, EDIT_TOOLS_MATCHER);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(addClaudeStopHook(settings, command), null, 2) + "\n");
-    console.log(chalk.green(hasClaudeStopHook(settings) ? "Updated" : "Installed") + ` Claude Code Stop hook: ${path}`);
+    writeFileSync(path, JSON.stringify(next, null, 2) + "\n");
+    const verb = hasClaudeHook(settings, "Stop") ? "Updated" : "Installed";
+    console.log(chalk.green(verb) + ` Claude Code hooks: ${path}`);
+    console.log(chalk.dim("  After each edit, Claude hears which files usually change with it."));
     console.log(chalk.dim("  When Claude finishes, likely-missing files are sent back to it to review."));
   }
 }
@@ -74,7 +80,7 @@ const install = new Command("install")
   .description("Run `context-pilot check` before each commit (and, with --claude, when Claude Code finishes)")
   .option("-p, --project <path>", "Project root path", ".")
   .option("--strict", "Block the commit when files look missing (skip once with git commit --no-verify)", false)
-  .option("--claude", "Also add a Claude Code Stop hook to .claude/settings.local.json", false)
+  .option("--claude", "Also add Claude Code hooks (after edits and on stop) to .claude/settings.local.json", false)
   .action(async (options: { project: string; strict: boolean; claude: boolean }) => {
     await installHooks(resolve(options.project), options);
   });
@@ -95,9 +101,10 @@ const uninstall = new Command("uninstall")
 
     const path = claudeSettingsPath(root);
     const settings = readJson(path);
-    if (hasClaudeStopHook(settings)) {
-      writeFileSync(path, JSON.stringify(removeClaudeStopHook(settings), null, 2) + "\n");
-      console.log(chalk.green("Removed") + ` Claude Code Stop hook from ${path}`);
+    if (hasClaudeHook(settings, "Stop") || hasClaudeHook(settings, "PostToolUse")) {
+      const next = removeClaudeHook(removeClaudeHook(settings, "Stop"), "PostToolUse");
+      writeFileSync(path, JSON.stringify(next, null, 2) + "\n");
+      console.log(chalk.green("Removed") + ` Claude Code hooks from ${path}`);
     }
   });
 

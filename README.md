@@ -106,6 +106,25 @@ download, no API calls.
 
 **Requirements:** Node.js 22.13+ and git.
 
+### Claude Code plugin (recommended)
+
+```bash
+claude plugin marketplace add diegoalvarezf/context-pilot
+claude plugin install context-pilot@context-pilot
+```
+
+Or in one step from inside Claude Code (2.1.275+): `/plugin install context-pilot --marketplace diegoalvarezf/context-pilot`.
+
+The plugin brings everything, with no settings to edit:
+
+- **After each edit**, a hook tells Claude which files usually change together with the one it just touched
+  ("this file usually changes with `X.test.ts` and `config.ts`"). Each file is mentioned once per session.
+- **Before Claude stops**, a hook checks the uncommitted changes and sends back files that look forgotten.
+- The **MCP server** with all the tools below, and a **skill** that explains when to use them.
+- An **`impact-reviewer` agent** on Haiku: a cheap second look at a plan or a diff before Claude closes it.
+
+### Any project, any client
+
 From your project's folder, with nothing to install first:
 
 ```bash
@@ -113,8 +132,8 @@ npx context-pilot@latest setup
 ```
 
 That's it. `setup` indexes the code and git history, adds a pre-commit hook that warns about
-files you probably forgot, and, if you use Claude Code, registers the MCP server and a hook that
-asks Claude to review those files when it finishes. Run it again any time; it never duplicates anything.
+files you probably forgot, and, if you use Claude Code, registers the MCP server and two hooks: one that
+tells Claude what usually changes with each file it edits, and one that asks it to review likely-missing files when it finishes. Run it again any time; it never duplicates anything.
 Use `--strict` to block commits instead of warning, `--no-claude` or `--no-hooks` to skip parts.
 
 Hooks then start context-pilot through `npx` (a second or two per commit). For faster hooks, install it globally:
@@ -140,7 +159,7 @@ pnpm link -g ./packages/cli
 
 ### Claude Code
 
-`context-pilot setup` does it for you. By hand:
+Install the plugin (see [Quick start](#quick-start)), or let `context-pilot setup` configure it. By hand:
 
 ```bash
 claude mcp add -s local context-pilot -- context-pilot serve .
@@ -208,7 +227,8 @@ Any MCP client works the same way: run `context-pilot serve <path>` over stdio (
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
 | `context-pilot impact <files...>` | Likely affected files with reasons: co-changes + import graph + tests (`--json`, `-n`, `-d` depth) |
 | `context-pilot check` | Files likely missing from your uncommitted changes (`--staged`, `--base <ref>`, `--min-score`, `--strict`, `--json`) |
-| `context-pilot hook install` / `uninstall` | Run `check` before each commit (`--strict` blocks) and, with `--claude`, when Claude Code finishes |
+| `context-pilot hint <file>` | What usually changes together with a file you just edited; with `--claude-hook` it runs as a Claude Code PostToolUse hook (`--min-score`, `-n`) |
+| `context-pilot hook install` / `uninstall` | Run `check` before each commit (`--strict` blocks) and, with `--claude`, add the Claude Code hooks (after each edit and on stop) |
 | `context-pilot co-changes <files...>` | Files that change together with the given ones (`--json`, `-n`, `--min-support`) |
 | `context-pilot backtest [path]` | Replay past commits: how well co-changes predict the rest of each commit (precision/recall/hit-rate@k). Read-only, no `init` needed (`--test-commits`, `-k`, `--with-graph`, `--calibrate` for precision per signal strength, `--json`) |
 | `context-pilot status [path]` | Index and history stats |
@@ -241,6 +261,11 @@ rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 - [x] `check_change` tool and `context-pilot check`: files likely missing from your current change (pre-commit / agent hook)
 - [x] Calibrate the `check` threshold with backtests (precision per score bucket)
 - [x] Ready-made hooks: git pre-commit and Claude Code Stop (`context-pilot hook install`)
+- [x] Proactive hint after each edit (Claude Code PostToolUse hook, `context-pilot hint`)
+- [x] Claude Code plugin: MCP server, hooks, skill and a Haiku `impact-reviewer` agent
+- [ ] Measure the effect on agents: same tasks with and without context-pilot (tokens, forgotten files, fix-up rounds)
+- [ ] Migration mode: plan large changes (e.g. PHP 7 → 8) in ordered batches of files that change together, each with its tests
+- [ ] Learn from feedback: weigh hints by whether the agent acted on them
 - [ ] Symbol-level references ("who calls this function")
 - [ ] Impact visualizer (the old dashboard is parked in `parked/ui-server`)
 

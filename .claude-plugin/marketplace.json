@@ -1,0 +1,12 @@
+{
+  "name": "context-pilot",
+  "owner": { "name": "Diego Álvarez", "url": "https://github.com/diegoalvarezf" },
+  "plugins": [
+    {
+      "name": "context-pilot",
+      "source": "./plugin",
+      "description": "Change-impact analysis from your git history, with hooks that warn Claude after each edit and before it stops.",
+      "version": "0.5.0"
+    }
+  ]
+}
