@@ -28,7 +28,7 @@ const isOurs = (h: CommandHook) => isOurCommand(h.command) || isOurCommand(h.bas
 const GROUP_EVENTS: Partial<Record<Agent, Partial<Record<HookEvent, { event: string; matcher?: string }>>>> = {
   claude: {
     prompt: { event: "UserPromptSubmit" },
-    search: { event: "PreToolUse", matcher: "Grep|Bash" },
+    search: { event: "PreToolUse", matcher: "Grep" },
     edit: { event: "PostToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit" },
     stop: { event: "Stop" },
   },

@@ -7,6 +7,7 @@ import {
   ContextEngine,
   DEFAULT_CHECK_MIN_SCORE,
   formatFindSymbol,
+  mapForPrompt,
   toProjectPath,
 } from "context-pilot-engine";
 import { AGENTS, editedFiles, formatReply, HOOK_EVENTS, parseHookInput, searchedName, type Agent, type HookEvent, type HookInput } from "../agents.js";
@@ -19,10 +20,6 @@ import { CLI_VERSION } from "../version.js";
 // The single hook entry point for every agent: `context-pilot on <event> --hook --agent <a>`.
 // It never gets in the agent's way: anything unexpected means "nothing to say".
 
-/** Below this the task probably isn't about code we can find: say nothing (see `bench`) */
-export const PROMPT_MIN_CONFIDENCE = 0.3;
-const PROMPT_BUDGET = 800;
-const MIN_PROMPT_CHARS = 12;
 /** Hooks re-index at most this often; the index answers from what it has in between */
 const HOOK_FRESH_MS = 30 * 60_000;
 
@@ -94,18 +91,14 @@ export async function respond(event: HookEvent, input: HookInput, root: string):
     const state = loadState(input.sessionId);
 
     if (event === "prompt") {
-      const task = input.prompt?.trim() ?? "";
-      if (task.length < MIN_PROMPT_CHARS) return silent("prompt too short");
-      const map = engine.pilot({ projectPath: root, task, budget: PROMPT_BUDGET });
-      if (map.files.length === 0) return silent("no matching code", { confidence: map.confidence });
-      if (map.confidence < PROMPT_MIN_CONFIDENCE) {
-        return silent("low confidence", { confidence: map.confidence, files: map.files.map((f) => f.path) });
-      }
-      saveState(input.sessionId, { ...state, hinted: [...new Set([...state.hinted, ...map.files.map((f) => f.path)])] });
+      const r = mapForPrompt(engine, root, input.prompt ?? "");
+      if (!r.map) return silent(r.reason ?? "no map", { confidence: r.confidence });
+      const files = r.map.files.map((f) => f.path);
+      saveState(input.sessionId, { ...state, hinted: [...new Set([...state.hinted, ...files])] });
       return {
-        text: `${map.text}\n(context-pilot: from the code index and git history. Tools: pilot, find_symbol, outline.)`,
-        confidence: map.confidence,
-        files: map.files.map((f) => f.path),
+        text: `${r.map.text}\n(context-pilot: from the code index and git history. Tools: pilot, find_symbol, outline.)`,
+        confidence: r.map.confidence,
+        files,
       };
     }
 
@@ -161,6 +154,9 @@ export const onCommand = new Command("on")
       else if (!AGENTS.includes(options.agent as Agent)) outcome = silent("unknown agent");
       else {
         input = parseHookInput(await readStdin());
+        // Most tool calls a search hook sees aren't symbol searches (any Bash command, a regex):
+        // leave at once, without git, the engine or a trace line
+        if (event === "search" && !searchedName(input)) return;
         root = options.project ? resolve(options.project) : gitRoot(input.cwd ?? process.cwd());
         if (!root || !existsSync(join(root, ".git"))) outcome = silent("not a git repository");
         else {

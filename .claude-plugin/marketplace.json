@@ -10,7 +10,7 @@
       "name": "context-pilot",
       "source": "./plugin",
       "description": "Pilots Claude's context from your code and git history: where to look for a task, the definition when it searches a symbol, what usually changes with each edit, and files it forgot before it stops.",
-      "version": "0.7.0"
+      "version": "0.7.1"
     }
   ]
 }

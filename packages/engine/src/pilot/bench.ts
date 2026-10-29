@@ -4,6 +4,7 @@ import { readGitLog, runGit } from "../history/git.js";
 import { DEFAULT_MAX_FILES_PER_COMMIT, defaultIgnore } from "../history/cochange.js";
 import { estimateTokens } from "./pilot.js";
 import { terms } from "./search.js";
+import { mapForPrompt } from "./task.js";
 import type { IContextEngine, OutlineSymbol } from "../types.js";
 
 // Does the pilot save tokens, and does it point at the right code? Replays past
@@ -30,6 +31,8 @@ export interface BenchOptions {
    * tasks translated to another language. Only those commits are evaluated.
    */
   tasks?: Record<string, string>;
+  /** Prompts that are not code tasks (pasted reports, questions, chat): the hook should stay silent */
+  negatives?: string[];
 }
 
 export interface BenchCommit {
@@ -39,6 +42,8 @@ export interface BenchCommit {
   found: string[];
   recall: number;
   confidence: number;
+  /** The prompt hook would hand this map to the agent (task screening + confidence) */
+  answered: boolean;
   mapTokens: number;
   grepTokens: number;
   readFullTokens: number;
@@ -58,6 +63,10 @@ export interface BenchReport {
   hitRate: number;
   /** Same, only over commits the hook would act on (confidence >= threshold) */
   confident: { threshold: number; share: number; recall: number; hitRate: number }[];
+  /** What the prompt hook does: share of tasks it answers and how often those maps hit */
+  hook: { answered: number; hitRate: number; recall: number };
+  /** Prompts that aren't tasks: share the hook correctly stays silent on, and those it spoke for */
+  negatives?: { total: number; silent: number; rate: number; spoke: string[] };
   tokens: { without: number; with: number; saved: number; map: number; grep: number; readFull: number; readRanges: number };
   commits: BenchCommit[];
 }
@@ -122,6 +131,7 @@ export async function benchPilot(
     }
 
     const map = engine.pilot({ projectPath, task, budget, expand });
+    const answered = mapForPrompt(engine, projectPath, task).map !== null;
     const inMap = new Map(map.files.map((f) => [f.path, f]));
     const found = targets.filter((t) => inMap.has(t));
     const grepTokens = grepCost(task, files, read, grepCap);
@@ -144,6 +154,7 @@ export async function benchPilot(
       found,
       recall: found.length / targets.length,
       confidence: map.confidence,
+      answered,
       mapTokens: map.tokens,
       grepTokens,
       readFullTokens,
@@ -156,6 +167,14 @@ export async function benchPilot(
   const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   const sum = (f: (c: BenchCommit) => number) => results.reduce((a, c) => a + f(c), 0);
   const without = sum((c) => c.without);
+  const answeredCommits = results.filter((c) => c.answered);
+  const negatives = options.negatives
+    ? (() => {
+        const spoke = options.negatives.filter((p) => mapForPrompt(engine, projectPath, p).map !== null);
+        const total = options.negatives.length;
+        return { total, silent: total - spoke.length, rate: total ? (total - spoke.length) / total : 1, spoke: spoke.map((p) => p.slice(0, 80)) };
+      })()
+    : undefined;
   const withPilot = sum((c) => c.with);
   return {
     evaluated: results.length,
@@ -173,6 +192,12 @@ export async function benchPilot(
         hitRate: mean(sel.map((c) => (c.found.length ? 1 : 0))),
       };
     }),
+    hook: {
+      answered: results.length ? answeredCommits.length / results.length : 0,
+      hitRate: mean(answeredCommits.map((c) => (c.found.length ? 1 : 0))),
+      recall: mean(answeredCommits.map((c) => c.recall)),
+    },
+    ...(negatives ? { negatives } : {}),
     tokens: {
       without,
       with: withPilot,

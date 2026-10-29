@@ -14,6 +14,11 @@ function print(r: BenchReport): void {
   for (const c of r.confident) {
     console.log(chalk.dim(`    confidence >= ${c.threshold}: ${pct(c.share)} of tasks, hit ${pct(c.hitRate)}, recall ${pct(c.recall)}`));
   }
+  console.log(`  prompt hook answers ${chalk.cyan(pct(r.hook.answered))} of tasks, hit ${pct(r.hook.hitRate)}, recall ${pct(r.hook.recall)}`);
+  if (r.negatives) {
+    console.log(`  not tasks: silent on ${chalk.cyan(pct(r.negatives.rate))} of ${r.negatives.total} prompts`);
+    for (const p of r.negatives.spoke) console.log(chalk.yellow(`    spoke for: ${p}`));
+  }
   const t = r.tokens;
   console.log("");
   console.log(`  tokens without context-pilot: ${k(t.without)}  (grep ${k(t.grep)} + reading edited files in full ${k(t.readFull)})`);
@@ -29,8 +34,9 @@ export const benchCommand = new Command("bench")
   .option("-b, --budget <tokens>", "Map budget", "1500")
   .option("--expand", "Expand with history and imports (optimistic: today's history knows each commit)", false)
   .option("--tasks <file>", "JSON with tasks to use instead of commit messages: { tasks: { <sha>: <task> } } (e.g. translated)")
+  .option("--negatives <file>", "JSON with prompts that are not code tasks, { prompts: [...] }: the hook should stay silent on them")
   .option("--json", "Output raw JSON", false)
-  .action(async (path: string, options: { commits: string; budget: string; expand: boolean; tasks?: string; json: boolean }) => {
+  .action(async (path: string, options: { commits: string; budget: string; expand: boolean; tasks?: string; negatives?: string; json: boolean }) => {
     const root = resolve(path);
     const engine = new ContextEngine();
     try {
@@ -40,6 +46,7 @@ export const benchCommand = new Command("bench")
         budget: parseInt(options.budget, 10),
         expand: options.expand,
         tasks: options.tasks ? (JSON.parse(readFileSync(options.tasks, "utf8")) as { tasks: Record<string, string> }).tasks : undefined,
+        negatives: options.negatives ? (JSON.parse(readFileSync(options.negatives, "utf8")) as { prompts: string[] }).prompts : undefined,
       });
       if (options.json) console.log(JSON.stringify(report, null, 2));
       else print(report);

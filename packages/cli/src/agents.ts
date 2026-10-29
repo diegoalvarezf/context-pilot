@@ -92,15 +92,14 @@ export function searchedName(input: HookInput): string | null {
 // Options of grep/rg that take a value as the next word
 const VALUE_FLAGS = new Set(["-A", "-B", "-C", "-m", "-g", "-t", "-T", "--glob", "--type", "--include", "--exclude", "--max-count"]);
 
-/** The pattern of the first grep / rg / ag / ack / git grep in a shell command. */
+/** The pattern of a shell command that starts with grep / rg / ag / ack / git grep; null otherwise. */
 export function shellSearchPattern(command: string): string | null {
   // First command of a pipeline / list, words with quotes removed
-  const words = [...command.split(/[|;&]/)[0].matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
-  let i = words.findIndex((w) => ["rg", "grep", "egrep", "ag", "ack"].includes(w));
-  if (i < 0) {
-    i = words.findIndex((w, k) => w === "grep" && words[k - 1] === "git");
-    if (i < 0) return null;
-  }
+  const words = [...command.trim().split(/[|;&]/)[0].matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+  let i: number;
+  if (["rg", "grep", "egrep", "ag", "ack"].includes(words[0])) i = 0;
+  else if (words[0] === "git" && words[1] === "grep") i = 1;
+  else return null;
   for (let k = i + 1; k < words.length; k++) {
     const w = words[k];
     if (w === "-e" || w === "--regexp") return words[k + 1] ?? null;

@@ -2,7 +2,7 @@
   "mcpServers": {
     "context-pilot": {
       "command": "npx",
-      "args": ["-y", "context-pilot@0.7.0", "serve", "${CLAUDE_PROJECT_DIR}"]
+      "args": ["-y", "context-pilot@0.7.1", "serve", "${CLAUDE_PROJECT_DIR}"]
     }
   }
 }

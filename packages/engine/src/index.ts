@@ -5,6 +5,8 @@ export { pilot, rankPilotFiles, estimateTokens, DEFAULT_PILOT_BUDGET } from "./p
 export { searchFiles, terms, identifiers } from "./pilot/search.js";
 export { formatOutline, formatFindSymbol } from "./pilot/format.js";
 export { benchPilot, DEFAULT_BENCH_COMMITS } from "./pilot/bench.js";
+export { screenPrompt, mapForPrompt, PROMPT_MIN_CONFIDENCE, PROMPT_BUDGET } from "./pilot/task.js";
+export type { NotATask, Screened, PromptMap } from "./pilot/task.js";
 export type { BenchOptions, BenchReport, BenchCommit } from "./pilot/bench.js";
 export { extractSymbols, signatureOf } from "./symbols/extract.js";
 export type { SymbolDef, SymbolRef, SymbolKind } from "./symbols/extract.js";

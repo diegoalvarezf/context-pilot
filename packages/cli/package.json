@@ -1,6 +1,6 @@
 {
   "name": "context-pilot",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Pilots your coding agent's context: where to look for each task, what else a change touches, which tests to run. Any agent, 100% local.",
   "license": "MIT",
   "repository": {

@@ -32,8 +32,8 @@ is used) and learns from git history which files change together. Then it steps 
 
 | When | What the agent gets |
 |------|---------------------|
-| You give it a task | A **map**: the files that matter, in order, their functions with line ranges, the code of the best match, files that usually change with them and the tests to run. Only when it's confident the task is about code it can find. |
-| It's about to grep for a name | Where that name is **defined and used**, with line numbers |
+| You give it a task | A **map**: the files that matter, in order, their functions with line ranges, the code of the best match, files that usually change with them and the tests to run. Only when it's confident the task is about code it can find: never for pasted text, logs or diffs, questions and chat without a change request, requests for a text ("write me a prompt…"), or a prompt whose only words are the repo's or the tool's name. |
+| It's about to grep for a name (Grep tool) | Where that name is **defined and used**, with line numbers |
 | It edits a file | What **usually changes together** with that file |
 | It says it's done | Files that **look forgotten**, so it reviews them before stopping |
 
@@ -77,6 +77,10 @@ programming words: on ky, "que el retraso de los reintentos respete la cabecera 
 | ky, Spanish tasks — now | **94%** | **54%** | **45%** | **69%** |
 | express, Spanish tasks — before | 53% | 43% | 31% | 23% |
 | express, Spanish tasks — now | **59%** | **50%** | **36%** | **35%** |
+
+On prompts that aren't code tasks (`bench/tasks/negatives.json`: two pasted reports, "pásame el prompt para el chat de
+context-pilot", questions, chat, a log, a diff) the prompt hook now stays silent on 21 of 21 in ky, express, this repo
+and a Next.js portfolio, up from 15–20 of 21 in 0.7.0, while answering exactly the same real tasks as before.
 
 English results are unchanged. On ky the Spanish run edges past the English one because each translated word also
 tries its synonyms (`respuesta` → `response`, `res`).
@@ -211,7 +215,7 @@ pnpm link -g ./packages/cli
 | `context-pilot pilot "<task>"` | The map for a task (`-f` files you know are involved, `-b` budget, `--json`) |
 | `context-pilot find <name>` | Where a symbol is defined and used (`--json`) |
 | `context-pilot outline <files...>` | Functions and classes of a file with line ranges (`--json`) |
-| `context-pilot bench [path]` | Replay past commits to measure how often the map finds the edited files and the tokens it saves (`-n`, `-b`, `--expand`, `--tasks <file>` with other task texts, e.g. translated, `--json`) |
+| `context-pilot bench [path]` | Replay past commits to measure how often the map finds the edited files and the tokens it saves (`-n`, `-b`, `--expand`, `--tasks <file>` with other task texts, e.g. translated, `--negatives <file>` with prompts that aren't tasks, to check the hook stays silent, `--json`) |
 | `context-pilot trace` | What the hooks did and whether agents used their suggestions (`--since 7d`, `-p <project>`, `--follow`, `--json`) |
 | `context-pilot doctor [path]` | Checks install, hooks per agent, index and recent errors, and runs the prompt hook and an MCP handshake (`--skip-run`) |
 | `context-pilot on <event> --hook --agent <a>` | Hook entry point agents call (`prompt`, `search`, `edit`, `stop`); reads the agent's JSON on stdin |

@@ -188,7 +188,10 @@ pnpm test          # run all tests (vitest, engine and cli packages)
 - Pilot (0.6.0): `symbols` / `symbol_refs` tables (by project + path), `pilot` / `find_symbol` / `outline` MCP tools
   and CLI commands, `ensureFresh` (index when stale; hooks use 30 min), indexing only git-tracked files, hooks for
   every agent through `on`, `setup` detecting agents, `AGENTS.md` block. `node:sqlite` in Node 22 has no FTS5, so
-  search is in memory. Prompt hook only answers when confidence (idf coverage of the task by the top files) ≥ 0.3.
+  search is in memory. Prompt hook (`mapForPrompt` in `engine/src/pilot/task.ts`, shared with `bench`) first screens
+  the prompt (`screenPrompt`: pasted text, > 1500 chars or 25 lines, question without a change request and without
+  identifiers, request for a text, only the repo's / tool's names), then answers only when confidence (idf coverage of
+  the task by the top files) ≥ 0.3. The task searched is the whole prompt (in this repo, "pilot" is code).
 - Bench (2026-10-29, text search only, budget 1500; `--expand` adds history but is optimistic):
   ky 100 commits: map has an edited file 89%, edited files found 48%, tokens saved 40% (expand: 92% / 67% / 43%);
   express 81: 57% / 46% / 36% (expand: 64% / 58% / 37%); context-pilot 19: 68% / 31% / 23% (expand: 52% recall, 31%).
@@ -206,6 +209,9 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   child process. Recheck on newer Node and drop the child when fixed.
 - Dev link: a global `context-pilot` linked to this checkout makes `npx context-pilot@<same version>` (plugin hooks,
   MCP server) run `packages/cli/dist`: rebuild after every change or the user's live sessions break. `doctor` warns.
+- 0.7.1: prompt screening (negatives silent 21/21 on ky, express, portfolio, context-pilot, from 15–20/21; real tasks
+  answered unchanged); search hook only on Grep for Claude, and non-searches leave before git / engine / trace;
+  doctor ignores the npx cache on PATH.
 - Next: a control group for real sessions (same tasks with and without hooks); more task languages; Swift / C# in the
   import graph.
 - Known: `check` threshold calibrated on JS + TS (express, zod, ky), not yet Python / PHP; the watcher does not
