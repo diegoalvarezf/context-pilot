@@ -1,6 +1,6 @@
 {
   "name": "context-pilot-engine",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "context-pilot engine: symbol index, task maps, co-change mining, dependency graph and impact analysis",
   "license": "MIT",
   "repository": {
