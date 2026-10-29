@@ -25,6 +25,11 @@ export interface BenchOptions {
   expand?: boolean;
   /** Lines kept per grep, like an agent piping to head */
   grepCap?: number;
+  /**
+   * Tasks to use instead of commit messages, by commit sha (or a prefix of it): e.g. the same
+   * tasks translated to another language. Only those commits are evaluated.
+   */
+  tasks?: Record<string, string>;
 }
 
 export interface BenchCommit {
@@ -70,14 +75,19 @@ export async function benchPilot(
   const expand = options.expand ?? false;
   const grepCap = options.grepCap ?? DEFAULT_GREP_CAP;
 
-  const log = await runGit(projectPath, ["log", "--no-merges", `-n${n * 3}`, "--format=%H%x00%s"]);
+  const given = options.tasks ? Object.entries(options.tasks) : null;
+  const taskFor = (sha: string) => given?.find(([prefix]) => sha.startsWith(prefix))?.[1];
+  const depth = given ? Math.max(n * 3, 2000) : n * 3;
+  const log = await runGit(projectPath, ["log", "--no-merges", `-n${depth}`, "--format=%H%x00%s"]);
   const subjects = new Map(
     log.stdout
       .split("\n")
       .filter(Boolean)
       .map((l) => l.split("\0") as [string, string])
   );
-  const commits = (await readGitLog(projectPath, { maxCommits: n * 3 })).filter((c) => subjects.has(c.sha));
+  const commits = (await readGitLog(projectPath, { maxCommits: depth })).filter(
+    (c) => subjects.has(c.sha) && (!given || taskFor(c.sha) !== undefined)
+  );
 
   const indexed = new Set(engine.indexedFiles({ projectPath }));
   const source = new Map<string, string>();
@@ -97,7 +107,7 @@ export async function benchPilot(
   let skipped = 0;
   for (const c of commits) {
     if (results.length >= n) break;
-    const task = subjects.get(c.sha)!.replace(/^\w+(\([^)]*\))?!?:\s*/, ""); // drop "feat(x):"
+    const task = taskFor(c.sha) ?? subjects.get(c.sha)!.replace(/^\w+(\([^)]*\))?!?:\s*/, ""); // drop "feat(x):"
     const targets = [
       ...new Set(
         c.files

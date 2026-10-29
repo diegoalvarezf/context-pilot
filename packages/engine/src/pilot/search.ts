@@ -1,6 +1,9 @@
 // Text search over the symbol index, without embeddings: a task like "fix the
 // retry delay in fetchWithRetry" is split into terms and matched against
-// symbol names and file paths, weighting rare terms higher (idf).
+// symbol names and file paths, weighting rare terms higher (idf). Each task term
+// also matches its translations (lang.ts), so "el reintento" finds `retry`.
+
+import { alternatives } from "./lang.js";
 
 export interface SearchSymbol {
   path: string;
@@ -57,9 +60,11 @@ export function identifiers(text: string): string[] {
 }
 
 export function searchFiles(task: string, symbols: SearchSymbol[], paths: string[], limit = 10): FileHit[] {
-  const query = [...new Set(terms(task))];
+  // One group per task term: the term and what it may be called in the code
+  const groups = [...new Set(terms(task))].map((term) => ({ term, alts: alternatives(term) }));
   const exact = new Set(identifiers(task).map((i) => i.toLowerCase()));
-  if (query.length === 0 && exact.size === 0) return [];
+  if (groups.length === 0 && exact.size === 0) return [];
+  const altSet = new Set(groups.flatMap((g) => g.alts));
 
   // Document = file: its path terms + its symbol name terms
   const docTerms = new Map<string, Set<string>>();
@@ -90,12 +95,17 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
   // A term the code never uses is specific, not common: count it as rare, so missing it lowers coverage
   const idf = (t: string) => Math.log(1 + n / (df.get(t) ?? 1));
 
-  const totalIdf = query.reduce((a, t) => a + idf(t), 0) || 1;
+  // A group weighs what its most specific spelling the code actually uses weighs (or the term itself if none)
+  const groupIdf = (g: { term: string; alts: string[] }) => {
+    const used = g.alts.filter((a) => df.has(a));
+    return used.length ? Math.max(...used.map(idf)) : idf(g.term);
+  };
+  const totalIdf = groups.reduce((a, g) => a + groupIdf(g), 0) || 1;
   const exactFiles = new Set<string>();
-  const scores = new Map<string, { score: number; terms: Set<string>; symbols: Map<string, number> }>();
+  const scores = new Map<string, { score: number; groups: Set<string>; terms: Set<string>; symbols: Map<string, number> }>();
   const entry = (path: string) => {
     let e = scores.get(path);
-    if (!e) scores.set(path, (e = { score: 0, terms: new Set(), symbols: new Map() }));
+    if (!e) scores.set(path, (e = { score: 0, groups: new Set(), terms: new Set(), symbols: new Map() }));
     return e;
   };
 
@@ -103,17 +113,21 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
     const base = path.split("/").pop()!.replace(/\.[^.]+$/, "");
     const nameSet = new Set(terms(base));
     const dirSet = new Set(terms(path.slice(0, -base.length)));
-    for (const t of query) {
-      if (!set.has(t)) continue;
-      const e = entry(path);
-      e.terms.add(t);
+    for (const g of groups) {
       // The file's own name says the most, then a symbol, then a folder
-      e.score += idf(t) * (nameSet.has(t) ? 2.5 : dirSet.has(t) && !symbolTermOf(path, t) ? 0.6 : 1);
+      const weight = (t: string) => idf(t) * (nameSet.has(t) ? 2.5 : dirSet.has(t) && !symbolTermOf(path, t) ? 0.6 : 1);
+      const matched = g.alts.filter((t) => set.has(t));
+      if (!matched.length) continue;
+      const best = matched.reduce((a, t) => (weight(t) > weight(a) ? t : a));
+      const e = entry(path);
+      e.groups.add(g.term);
+      e.terms.add(best);
+      e.score += weight(best);
     }
   }
   for (const s of symbols) {
     const ts = symTerms.get(s)!;
-    const hit = ts.filter((t) => query.includes(t));
+    const hit = ts.filter((t) => altSet.has(t));
     const isExact = exact.has(s.name.toLowerCase());
     if (!hit.length && !isExact) continue;
     const e = entry(s.path);
@@ -133,7 +147,7 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
       raw: e.score,
       terms: [...e.terms],
       symbols: e.symbols,
-      coverage: exactFiles.has(path) ? 1 : [...e.terms].reduce((a, t) => a + idf(t), 0) / totalIdf,
+      coverage: exactFiles.has(path) ? 1 : groups.filter((g) => e.groups.has(g.term)).reduce((a, g) => a + groupIdf(g), 0) / totalIdf,
     }))
     .filter((r) => r.raw > 0)
     .sort((a, b) => b.raw - a.raw);

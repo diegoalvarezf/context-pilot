@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 import chalk from "chalk";
 import { benchPilot, ContextEngine, DEFAULT_BENCH_COMMITS, type BenchReport } from "context-pilot-engine";
@@ -27,8 +28,9 @@ export const benchCommand = new Command("bench")
   .option("-n, --commits <n>", "Commits to evaluate", String(DEFAULT_BENCH_COMMITS))
   .option("-b, --budget <tokens>", "Map budget", "1500")
   .option("--expand", "Expand with history and imports (optimistic: today's history knows each commit)", false)
+  .option("--tasks <file>", "JSON with tasks to use instead of commit messages: { tasks: { <sha>: <task> } } (e.g. translated)")
   .option("--json", "Output raw JSON", false)
-  .action(async (path: string, options: { commits: string; budget: string; expand: boolean; json: boolean }) => {
+  .action(async (path: string, options: { commits: string; budget: string; expand: boolean; tasks?: string; json: boolean }) => {
     const root = resolve(path);
     const engine = new ContextEngine();
     try {
@@ -37,6 +39,7 @@ export const benchCommand = new Command("bench")
         commits: parseInt(options.commits, 10),
         budget: parseInt(options.budget, 10),
         expand: options.expand,
+        tasks: options.tasks ? (JSON.parse(readFileSync(options.tasks, "utf8")) as { tasks: Record<string, string> }).tasks : undefined,
       });
       if (options.json) console.log(JSON.stringify(report, null, 2));
       else print(report);
