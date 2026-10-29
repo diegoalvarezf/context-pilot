@@ -1,5 +1,6 @@
 {
   "name": "context-pilot",
+  "description": "context-pilot for Claude Code: pilots the agent's context from your code and git history.",
   "owner": {
     "name": "Diego Álvarez",
     "url": "https://github.com/diegoalvarezf"
