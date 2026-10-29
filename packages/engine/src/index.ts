@@ -3,6 +3,7 @@ export { parseNameStatus, readWorkingChanges } from "./history/diff.js";
 export { openDatabase } from "./storage/sqlite.js";
 export { pilot, rankPilotFiles, estimateTokens, DEFAULT_PILOT_BUDGET } from "./pilot/pilot.js";
 export { searchFiles, terms, identifiers } from "./pilot/search.js";
+export { formatOutline, formatFindSymbol } from "./pilot/format.js";
 export { extractSymbols, signatureOf } from "./symbols/extract.js";
 export type { SymbolDef, SymbolRef, SymbolKind } from "./symbols/extract.js";
 export { parseGitLog, gitHooksDir } from "./history/git.js";

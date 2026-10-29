@@ -240,7 +240,7 @@ export class ContextEngine implements IContextEngine {
     const read = (path: string) => {
       if (!sourceLines.has(path)) {
         try {
-          sourceLines.set(path, readFileSync(join(params.projectPath, path), "utf8").split("\n"));
+          sourceLines.set(path, readFileSync(join(params.projectPath, path), "utf8").split(/\r?\n/));
         } catch {
           sourceLines.set(path, null);
         }

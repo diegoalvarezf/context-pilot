@@ -15,6 +15,8 @@ export interface FileHit {
   score: number;
   /** Absolute match strength (sum of idf of matched terms, +4 per exact symbol name) */
   raw: number;
+  /** Share of the task's terms (idf-weighted) this file matches; 1 when the task names one of its symbols */
+  coverage: number;
   /** Symbols of this file that matched, best first */
   symbols: string[];
   /** Terms that matched */
@@ -25,6 +27,9 @@ const STOPWORDS = new Set(
   (
     "the and for with that this from into when then than not but are was were will can should would " +
     "add fix make use update change remove delete create get set new old all any some more less file files code " +
+    "what does how why which where who used using also just like need want please there here have has its it's " +
+    "project repo work works working does doesn don thing things way" +
+    " qué cómo dónde cuál quiero necesito hay tiene funciona proyecto cosa " +
     "los las del una uno unos unas con por para que como cuando pero sin sobre este esta esto estos " +
     "hay hace hacer poner quitar cambiar arreglar añadir crear borrar nuevo nueva archivo archivos codigo código"
   ).split(" ")
@@ -71,11 +76,22 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
     addTerms(s.path, ts);
   }
 
+  const symbolTerms = new Map<string, Set<string>>();
+  for (const [s, ts] of symTerms) {
+    let set = symbolTerms.get(s.path);
+    if (!set) symbolTerms.set(s.path, (set = new Set()));
+    for (const t of ts) set.add(t);
+  }
+  const symbolTermOf = (path: string, t: string) => symbolTerms.get(path)?.has(t) ?? false;
+
   const n = docTerms.size || 1;
   const df = new Map<string, number>();
   for (const set of docTerms.values()) for (const t of set) df.set(t, (df.get(t) ?? 0) + 1);
-  const idf = (t: string) => Math.log(1 + n / (df.get(t) ?? n));
+  // A term the code never uses is specific, not common: count it as rare, so missing it lowers coverage
+  const idf = (t: string) => Math.log(1 + n / (df.get(t) ?? 1));
 
+  const totalIdf = query.reduce((a, t) => a + idf(t), 0) || 1;
+  const exactFiles = new Set<string>();
   const scores = new Map<string, { score: number; terms: Set<string>; symbols: Map<string, number> }>();
   const entry = (path: string) => {
     let e = scores.get(path);
@@ -84,13 +100,15 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
   };
 
   for (const [path, set] of docTerms) {
-    const pathSet = new Set(terms(path));
+    const base = path.split("/").pop()!.replace(/\.[^.]+$/, "");
+    const nameSet = new Set(terms(base));
+    const dirSet = new Set(terms(path.slice(0, -base.length)));
     for (const t of query) {
       if (!set.has(t)) continue;
       const e = entry(path);
       e.terms.add(t);
-      // A term in the file name says more than one buried in a symbol
-      e.score += idf(t) * (pathSet.has(t) ? 1.5 : 1);
+      // The file's own name says the most, then a symbol, then a folder
+      e.score += idf(t) * (nameSet.has(t) ? 2.5 : dirSet.has(t) && !symbolTermOf(path, t) ? 0.6 : 1);
     }
   }
   for (const s of symbols) {
@@ -101,13 +119,22 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
     const e = entry(s.path);
     // The symbol's own score: share of its terms the task mentions, or an exact name
     const own = isExact ? 4 : (hit.reduce((a, t) => a + idf(t), 0) * hit.length) / ts.length;
-    if (isExact) e.score += 4;
+    if (isExact) {
+      e.score += 4;
+      exactFiles.add(s.path);
+    }
     e.symbols.set(s.name, Math.max(e.symbols.get(s.name) ?? 0, own));
   }
 
   // Files whose matches are just one common term are noise
   const ranked = [...scores.entries()]
-    .map(([path, e]) => ({ path, raw: e.score, terms: [...e.terms], symbols: e.symbols }))
+    .map(([path, e]) => ({
+      path,
+      raw: e.score,
+      terms: [...e.terms],
+      symbols: e.symbols,
+      coverage: exactFiles.has(path) ? 1 : [...e.terms].reduce((a, t) => a + idf(t), 0) / totalIdf,
+    }))
     .filter((r) => r.raw > 0)
     .sort((a, b) => b.raw - a.raw);
   const best = ranked[0]?.raw ?? 1;
@@ -115,6 +142,7 @@ export function searchFiles(task: string, symbols: SearchSymbol[], paths: string
     path: r.path,
     score: r.raw / best,
     raw: r.raw,
+    coverage: r.coverage,
     terms: r.terms,
     symbols: [...r.symbols.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name),
   }));

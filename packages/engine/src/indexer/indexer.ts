@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "fs";
+import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import { join, relative, extname, resolve, sep } from "path";
 import Parser from "web-tree-sitter";
@@ -48,7 +49,24 @@ function hashFile(content: string): string {
   return createHash("sha256").update(content).digest("hex").slice(0, 16);
 }
 
+/** Files git tracks or would track (respects .gitignore, skips worktrees); null outside a repo. */
+function gitFiles(dir: string): string[] | null {
+  const r = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    cwd: dir,
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (r.status !== 0) return null;
+  return r.stdout
+    .split("\0")
+    .filter((f) => f && SUPPORTED_EXTS.has(extname(f).toLowerCase()))
+    .filter((f) => !f.split("/").some((part) => IGNORE_DIRS.has(part) || (part.startsWith(".") && part !== ".github")))
+    .map((f) => join(dir, f));
+}
+
 function collectFiles(dir: string): string[] {
+  const tracked = gitFiles(dir);
+  if (tracked) return tracked;
   const files: string[] = [];
 
   function walk(current: string): void {
@@ -59,7 +77,8 @@ function collectFiles(dir: string): string[] {
       return;
     }
     for (const entry of entries) {
-      if (IGNORE_DIRS.has(entry)) continue;
+      // Hidden folders hold tooling, caches and agent worktrees (copies of the repo)
+      if (IGNORE_DIRS.has(entry) || (entry.startsWith(".") && entry !== ".github")) continue;
       const full = join(current, entry);
       let stat;
       try { stat = statSync(full); } catch { continue; }

@@ -5,12 +5,49 @@ import { impactOfSchema, handleImpactOf } from "./tools/impact-of.js";
 import { checkChangeSchema, handleCheckChange } from "./tools/check-change.js";
 import { indexProjectSchema, handleIndexProject } from "./tools/index-project.js";
 import { getGraphSchema, handleGetGraph } from "./tools/get-graph.js";
+import { pilotSchema, handlePilot } from "./tools/pilot.js";
+import { findSymbolSchema, handleFindSymbol } from "./tools/find-symbol.js";
+import { outlineSchema, handleOutline } from "./tools/outline.js";
 
 export function createServer(engine: IContextEngine, projectPath: string): McpServer {
   const server = new McpServer({
     name: "context-pilot",
-    version: "0.3.0",
+    version: "0.6.0",
   });
+
+  server.tool(
+    "pilot",
+    "Call this FIRST, before grepping or reading files for a task. Given the task in plain words, returns a " +
+      "compact map: which files matter, in order, with their functions and line ranges, the code of the best " +
+      "match, files that usually change with them and the tests to run. Then read only the ranges you need.",
+    pilotSchema.shape,
+    async ({ task, files, budget }) => {
+      const result = await handlePilot({ task, files, budget }, engine, projectPath);
+      return { content: [{ type: "text", text: result }] };
+    }
+  );
+
+  server.tool(
+    "find_symbol",
+    "Where a function, class, method, type or constant is defined (file, lines, signature) and every file " +
+      "that uses it, with line numbers. Use it instead of grep when you are looking for a name.",
+    findSymbolSchema.shape,
+    async ({ name, limit }) => {
+      const result = await handleFindSymbol({ name, limit }, engine, projectPath);
+      return { content: [{ type: "text", text: result }] };
+    }
+  );
+
+  server.tool(
+    "outline",
+    "The functions, classes and methods of a file with their line ranges and signatures, without the bodies. " +
+      "Use it instead of reading a whole file, then read only the lines you need.",
+    outlineSchema.shape,
+    async ({ files }) => {
+      const result = await handleOutline({ files }, engine, projectPath);
+      return { content: [{ type: "text", text: result }] };
+    }
+  );
 
   server.tool(
     "impact_of",

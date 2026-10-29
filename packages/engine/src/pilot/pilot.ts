@@ -51,8 +51,6 @@ export interface PilotInput {
 }
 
 export const DEFAULT_PILOT_BUDGET = 1500;
-/** Raw search strength that means "the task names this code" (an exact symbol, or a few rare terms) */
-const CONFIDENT_RAW = 4;
 const IMPACT_WEIGHT = 0.6;
 const MAX_FILES = 12;
 const MAX_OUTLINE = 10;
@@ -115,13 +113,15 @@ export function pilot(input: PilotInput): PilotResult {
     const outline = input.outline(f.path);
     const rank = (s: OutlineSymbol) => f.matched.indexOf(s.name);
     const matched = outline.filter((s) => rank(s) >= 0).sort((a, b) => rank(a) - rank(b));
-    const rest = outline.filter((s) => !f.matched.includes(s.name) && s.parent === null);
+    // Unmatched constants are noise; top-level functions and classes show the file's shape
+    const rest = outline.filter((s) => rank(s) < 0 && s.parent === null && s.kind !== "const");
+    const total = matched.length + rest.length;
     for (const s of [...matched, ...rest].slice(0, MAX_OUTLINE)) {
       const line = outlineLine(s);
       if (!fits(line)) break;
       push(line);
     }
-    if (outline.length > MAX_OUTLINE) push(`    … ${outline.length - MAX_OUTLINE} more symbols`);
+    if (total > MAX_OUTLINE) push(`    … ${total - MAX_OUTLINE} more`);
 
     // The code of the best match, when it's small enough to be worth it
     const best = matched[0];
@@ -138,8 +138,9 @@ export function pilot(input: PilotInput): PilotResult {
   push("Read only the line ranges you need.");
 
   const text = out.join("\n");
-  const topRaw = input.hits[0]?.raw ?? 0;
-  const confidence = input.files.length ? 1 : Math.min(1, topRaw / CONFIDENT_RAW);
+  // How much of the task the best files explain: a task that names code is covered, small talk isn't
+  const coverage = Math.max(0, ...input.hits.slice(0, 3).map((h) => h.coverage));
+  const confidence = input.files.length ? 1 : coverage;
   return {
     text,
     files,

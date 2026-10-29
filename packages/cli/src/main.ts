@@ -11,12 +11,15 @@ import { hookCommand } from "./commands/hook.js";
 import { setupCommand } from "./commands/setup.js";
 import { CLI_VERSION } from "./version.js";
 import { backtestCommand } from "./commands/backtest.js";
+import { pilotCommand } from "./commands/pilot.js";
+import { findCommand } from "./commands/find.js";
+import { outlineCommand } from "./commands/outline.js";
 
 const program = new Command();
 
 program
   .name("context-pilot")
-  .description("Change-impact analysis for AI coding agents")
+  .description("Pilots your coding agent's context: where to look, what else changes, which tests to run")
   .version(CLI_VERSION);
 
 program.addCommand(setupCommand);
@@ -24,6 +27,9 @@ program.addCommand(initCommand);
 program.addCommand(statusCommand);
 program.addCommand(serveCommand);
 program.addCommand(indexCommand);
+program.addCommand(pilotCommand);
+program.addCommand(findCommand);
+program.addCommand(outlineCommand);
 program.addCommand(impactCommand);
 program.addCommand(checkCommand);
 program.addCommand(hintCommand);
