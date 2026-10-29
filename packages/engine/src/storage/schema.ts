@@ -81,6 +81,32 @@ export function applySchema(db: DatabaseSync): void {
 
     CREATE INDEX IF NOT EXISTS idx_cochange_b ON cochange_pairs(project_id, file_b);
 
+    -- Symbol index (paths relative to project root): definitions and uses per file
+    CREATE TABLE IF NOT EXISTS symbols (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      path       TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      kind       TEXT NOT NULL,
+      parent     TEXT,
+      start_line INTEGER NOT NULL,
+      end_line   INTEGER NOT NULL,
+      signature  TEXT NOT NULL,
+      exported   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_symbols_path ON symbols(project_id, path);
+    CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(project_id, name);
+
+    CREATE TABLE IF NOT EXISTS symbol_refs (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      path       TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      line       INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_symbol_refs_path ON symbol_refs(project_id, path);
+    CREATE INDEX IF NOT EXISTS idx_symbol_refs_name ON symbol_refs(project_id, name);
+
     CREATE TABLE IF NOT EXISTS cochange_state (
       project_id        TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
       head_sha          TEXT NOT NULL,

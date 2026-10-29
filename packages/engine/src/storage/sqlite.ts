@@ -5,6 +5,7 @@ import { applySchema } from "./schema.js";
 import type { Chunk, GraphEdge } from "../types.js";
 import type { FileStats, PairStats } from "../history/cochange.js";
 import type { ImportEdge } from "../indexer/imports.js";
+import type { SymbolDef, SymbolRef } from "../symbols/extract.js";
 
 export function openDatabase(dbPath: string): DatabaseSync {
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -87,6 +88,19 @@ export function getFileHash(
 
 export function deleteFileChunks(db: DatabaseSync, fileId: string): void {
   db.prepare(`DELETE FROM chunks WHERE file_id = ?`).run(fileId);
+}
+
+/** Drops a file and everything indexed for it (re-index or deletion). */
+export function deleteFile(db: DatabaseSync, projectId: string, relPath: string): void {
+  const row = db.prepare(`SELECT id FROM files WHERE project_id = ? AND path = ?`).get(projectId, relPath) as
+    | { id: string }
+    | undefined;
+  if (row) {
+    deleteFileChunks(db, row.id);
+    db.prepare(`DELETE FROM files WHERE id = ?`).run(row.id);
+  }
+  db.prepare(`DELETE FROM symbols WHERE project_id = ? AND path = ?`).run(projectId, relPath);
+  db.prepare(`DELETE FROM symbol_refs WHERE project_id = ? AND path = ?`).run(projectId, relPath);
 }
 
 export function getProjectFiles(
@@ -309,4 +323,69 @@ export function getCoChangeStats(db: DatabaseSync, projectId: string): { files: 
   const files = (db.prepare(`SELECT COUNT(*) AS n FROM cochange_files WHERE project_id = ?`).get(projectId) as { n: number }).n;
   const pairs = (db.prepare(`SELECT COUNT(*) AS n FROM cochange_pairs WHERE project_id = ?`).get(projectId) as { n: number }).n;
   return { files, pairs };
+}
+
+// ── Symbols ───────────────────────────────────────────────────────────────────
+
+export interface SymbolRow {
+  path: string;
+  name: string;
+  kind: string;
+  parent: string | null;
+  start_line: number;
+  end_line: number;
+  signature: string;
+  exported: number;
+}
+
+export function replaceFileSymbols(
+  db: DatabaseSync,
+  projectId: string,
+  relPath: string,
+  symbols: SymbolDef[],
+  refs: SymbolRef[]
+): void {
+  const def = db.prepare(`
+    INSERT INTO symbols (project_id, path, name, kind, parent, start_line, end_line, signature, exported)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const ref = db.prepare(`INSERT INTO symbol_refs (project_id, path, name, line) VALUES (?, ?, ?, ?)`);
+  tx(db, () => {
+    db.prepare(`DELETE FROM symbols WHERE project_id = ? AND path = ?`).run(projectId, relPath);
+    db.prepare(`DELETE FROM symbol_refs WHERE project_id = ? AND path = ?`).run(projectId, relPath);
+    for (const s of symbols) {
+      def.run(projectId, relPath, s.name, s.kind, s.parent, s.startLine, s.endLine, s.signature, s.exported ? 1 : 0);
+    }
+    for (const r of refs) ref.run(projectId, relPath, r.name, r.line);
+  });
+}
+
+export function getFileSymbols(db: DatabaseSync, projectId: string, relPath: string): SymbolRow[] {
+  return db
+    .prepare(`SELECT * FROM symbols WHERE project_id = ? AND path = ? ORDER BY start_line`)
+    .all(projectId, relPath) as unknown as SymbolRow[];
+}
+
+export function getProjectSymbols(db: DatabaseSync, projectId: string): SymbolRow[] {
+  return db.prepare(`SELECT * FROM symbols WHERE project_id = ?`).all(projectId) as unknown as SymbolRow[];
+}
+
+export function findSymbolDefs(db: DatabaseSync, projectId: string, name: string): SymbolRow[] {
+  return db
+    .prepare(`SELECT * FROM symbols WHERE project_id = ? AND name = ? ORDER BY path, start_line`)
+    .all(projectId, name) as unknown as SymbolRow[];
+}
+
+export function findSymbolRefs(
+  db: DatabaseSync,
+  projectId: string,
+  name: string
+): Array<{ path: string; line: number }> {
+  return db
+    .prepare(`SELECT path, line FROM symbol_refs WHERE project_id = ? AND name = ? ORDER BY path, line`)
+    .all(projectId, name) as Array<{ path: string; line: number }>;
+}
+
+export function countSymbols(db: DatabaseSync, projectId: string): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM symbols WHERE project_id = ?`).get(projectId) as { n: number }).n;
 }

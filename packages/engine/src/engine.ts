@@ -1,10 +1,14 @@
-import { existsSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, relative } from "path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   CheckQuery,
   CheckResponse,
+  FindSymbolResponse,
+  OutlineResponse,
+  PilotQuery,
+  PilotResult,
   CoChangeQuery,
   CoChangeResponse,
   ImpactQuery,
@@ -25,7 +29,15 @@ import {
   getCoChangePartners,
   getFileImports,
   getIndexedPaths,
+  getProject,
+  getFileSymbols,
+  getProjectSymbols,
+  findSymbolDefs,
+  findSymbolRefs,
+  type SymbolRow,
 } from "./storage/sqlite.js";
+import { searchFiles } from "./pilot/search.js";
+import { DEFAULT_PILOT_BUDGET, pilot, type OutlineSymbol } from "./pilot/pilot.js";
 import { computeImpact, DEFAULT_IMPACT_DEPTH } from "./impact/impact.js";
 import { initTreeSitter } from "./indexer/languages.js";
 import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
@@ -42,6 +54,19 @@ import { isGitRepo } from "./history/git.js";
 import { readWorkingChanges } from "./history/diff.js";
 
 const DEFAULT_COCHANGE_LIMIT = 10;
+const DEFAULT_FRESH_MS = 5 * 60_000;
+const DEFAULT_FIND_LIMIT = 30;
+// Seed files from the text search that get expanded with impact()
+const PILOT_SEEDS = 5;
+
+const toOutline = (r: SymbolRow): OutlineSymbol => ({
+  name: r.name,
+  kind: r.kind,
+  parent: r.parent,
+  startLine: r.start_line,
+  endLine: r.end_line,
+  signature: r.signature,
+});
 // Co-change candidates fed into impact scoring, before the final limit
 const IMPACT_COCHANGE_POOL = 50;
 // Calibrated with `backtest --with-graph --calibrate` (see CLAUDE.md): ~50-65% of alerts are real
@@ -187,6 +212,97 @@ export class ContextEngine implements IContextEngine {
       historyAvailable: impact.historyAvailable,
       graphAvailable: impact.graphAvailable,
     };
+  }
+
+  async ensureFresh(params: { projectPath: string; maxAgeMs?: number }): Promise<void> {
+    const project = getProject(this.db, projectId(params.projectPath));
+    const age = project?.indexed_at ? Date.now() - project.indexed_at : Infinity;
+    if (age > (params.maxAgeMs ?? DEFAULT_FRESH_MS)) await this.index({ projectPath: params.projectPath });
+    else await this.mineHistory({ projectPath: params.projectPath });
+  }
+
+  pilot(params: PilotQuery): PilotResult {
+    const pid = projectId(params.projectPath);
+    const files = (params.files ?? []).map((f) => toProjectPath(params.projectPath, f));
+    const symbols = getProjectSymbols(this.db, pid).map((s) => ({
+      path: s.path,
+      name: s.name,
+      kind: s.kind,
+      startLine: s.start_line,
+    }));
+    const hits = searchFiles(params.task, symbols, getIndexedPaths(this.db, pid)).filter((h) =>
+      existsSync(join(params.projectPath, h.path))
+    );
+    const seeds = [...new Set([...files, ...hits.slice(0, PILOT_SEEDS).filter((h) => h.score >= 0.3).map((h) => h.path)])];
+    const impact = seeds.length ? this.impact({ projectPath: params.projectPath, files: seeds, limit: 15 }).results : [];
+
+    const sourceLines = new Map<string, string[] | null>();
+    const read = (path: string) => {
+      if (!sourceLines.has(path)) {
+        try {
+          sourceLines.set(path, readFileSync(join(params.projectPath, path), "utf8").split("\n"));
+        } catch {
+          sourceLines.set(path, null);
+        }
+      }
+      return sourceLines.get(path)!;
+    };
+
+    return pilot({
+      task: params.task,
+      files,
+      hits,
+      impact,
+      budget: params.budget ?? DEFAULT_PILOT_BUDGET,
+      outline: (path) => getFileSymbols(this.db, pid, path).map(toOutline),
+      fileTokens: (path) => this.fileTokens(params.projectPath, path),
+      lines: (path, start, end) => read(path)?.slice(start - 1, end).join("\n") ?? null,
+    });
+  }
+
+  outline(params: { projectPath: string; file: string }): OutlineResponse {
+    const path = toProjectPath(params.projectPath, params.file);
+    const pid = projectId(params.projectPath);
+    return {
+      path,
+      symbols: getFileSymbols(this.db, pid, path).map(toOutline),
+      fileTokens: this.fileTokens(params.projectPath, path),
+      indexed: getIndexedPaths(this.db, pid).includes(path),
+    };
+  }
+
+  findSymbol(params: { projectPath: string; name: string; limit?: number }): FindSymbolResponse {
+    const pid = projectId(params.projectPath);
+    // "Class.method" or "module.fn": look up the last part
+    const name = params.name.trim().split(/[.:#]/).pop() ?? params.name;
+    const definitions = findSymbolDefs(this.db, pid, name).map((r) => ({
+      ...toOutline(r),
+      path: r.path,
+      exported: r.exported === 1,
+    }));
+    const byFile = new Map<string, number[]>();
+    for (const r of findSymbolRefs(this.db, pid, name)) {
+      const lines = byFile.get(r.path) ?? [];
+      lines.push(r.line);
+      byFile.set(r.path, lines);
+    }
+    const uses = [...byFile.entries()]
+      .map(([path, lines]) => ({ path, lines }))
+      .sort((a, b) => b.lines.length - a.lines.length);
+    return {
+      name,
+      definitions,
+      uses: uses.slice(0, params.limit ?? DEFAULT_FIND_LIMIT),
+      totalUses: uses.reduce((a, u) => a + u.lines.length, 0),
+    };
+  }
+
+  private fileTokens(projectPath: string, path: string): number {
+    try {
+      return Math.ceil(statSync(join(projectPath, path)).size / 4);
+    } catch {
+      return 0;
+    }
   }
 
   async status(params: { projectPath: string }): Promise<StatusResult> {

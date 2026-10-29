@@ -8,12 +8,14 @@ import { v5 as uuidv5 } from "uuid";
 import type { Chunk, GraphEdge } from "../types.js";
 import { loadLanguage, getLanguageForFile, initTreeSitter } from "./languages.js";
 import { extractChunks, extractImports } from "./chunker.js";
+import { extractSymbols } from "../symbols/extract.js";
 import { ImportResolver, resolveFileImports, type ImportEdge } from "./imports.js";
 import {
   upsertFile,
   getFileHash,
-  deleteFileChunks,
+  deleteFile,
   insertChunks,
+  replaceFileSymbols,
   getProjectFiles,
   upsertProject,
   markProjectIndexed,
@@ -143,6 +145,31 @@ async function buildGraphEdges(
   if (edges.length > 0) insertGraphEdges(db, pid, edges);
 }
 
+async function indexFile(
+  db: DatabaseSync,
+  pid: string,
+  absPath: string,
+  relPath: string,
+  lang: NonNullable<ReturnType<typeof getLanguageForFile>>,
+  source: string,
+  hash: string
+): Promise<void> {
+  const parser = new Parser();
+  parser.setLanguage(await loadLanguage(lang));
+  const tree = parser.parse(source);
+  try {
+    // Drop the old row first: its chunks reference the old file id
+    deleteFile(db, pid, relPath);
+    const fileId = randomUUID();
+    upsertFile(db, fileId, pid, relPath, lang, hash, statSync(absPath).mtimeMs);
+    insertChunks(db, extractChunks(source, fileId, lang, tree));
+    const { symbols, refs } = extractSymbols(lang, tree);
+    replaceFileSymbols(db, pid, relPath, symbols, refs);
+  } finally {
+    tree.delete();
+  }
+}
+
 export async function indexProject(
   db: DatabaseSync,
   projectPath: string,
@@ -182,19 +209,7 @@ export async function indexProject(
     }
 
     try {
-      const language = await loadLanguage(lang);
-      const parser = new Parser();
-      parser.setLanguage(language);
-      const tree = parser.parse(source);
-
-      const stat = statSync(absPath);
-      const fileId = randomUUID();
-
-      upsertFile(db, fileId, pid, relPath, lang, hash, stat.mtimeMs);
-      deleteFileChunks(db, fileId);
-
-      const chunks = extractChunks(source, fileId, lang, tree);
-      insertChunks(db, chunks);
+      await indexFile(db, pid, absPath, relPath, lang, source, hash);
     } catch (err) {
       process.stderr.write(`[engine] failed to index ${relPath}: ${err}\n`);
       filesSkipped++;
@@ -203,6 +218,10 @@ export async function indexProject(
 
     filesIndexed++;
   }
+
+  // Files that are gone from disk
+  const present = new Set(allFiles.map((f) => toRel(projectPath, f)));
+  for (const f of getProjectFiles(db, pid)) if (!present.has(f.path)) deleteFile(db, pid, f.path);
 
   // Build import graph after all files are indexed
   await buildGraphEdges(db, pid, projectPath, allFiles);
@@ -241,13 +260,7 @@ export async function indexSpecificFiles(
       source = readFileSync(absPath, "utf8");
     } catch {
       // File deleted — remove from index
-      const existing = db
-        .prepare(`SELECT id FROM files WHERE project_id = ? AND path = ?`)
-        .get(pid, relPath) as { id: string } | undefined;
-      if (existing) {
-        deleteFileChunks(db, existing.id);
-        db.prepare(`DELETE FROM files WHERE id = ?`).run(existing.id);
-      }
+      deleteFile(db, pid, relPath);
       filesSkipped++;
       continue;
     }
@@ -267,19 +280,7 @@ export async function indexSpecificFiles(
     }
 
     try {
-      const language = await loadLanguage(lang);
-      const parser = new Parser();
-      parser.setLanguage(language);
-      const tree = parser.parse(source);
-
-      const stat = statSync(absPath);
-      const fileId = randomUUID();
-
-      upsertFile(db, fileId, pid, relPath, lang, hash, stat.mtimeMs);
-      deleteFileChunks(db, fileId);
-
-      const chunks = extractChunks(source, fileId, lang, tree);
-      insertChunks(db, chunks);
+      await indexFile(db, pid, absPath, relPath, lang, source, hash);
     } catch (err) {
       process.stderr.write(`[engine] failed to index ${relPath}: ${err}\n`);
       filesSkipped++;

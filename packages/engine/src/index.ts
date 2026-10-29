@@ -1,6 +1,10 @@
 export { ContextEngine, toProjectPath, DEFAULT_CHECK_MIN_SCORE } from "./engine.js";
 export { parseNameStatus, readWorkingChanges } from "./history/diff.js";
 export { openDatabase } from "./storage/sqlite.js";
+export { pilot, rankPilotFiles, estimateTokens, DEFAULT_PILOT_BUDGET } from "./pilot/pilot.js";
+export { searchFiles, terms, identifiers } from "./pilot/search.js";
+export { extractSymbols, signatureOf } from "./symbols/extract.js";
+export type { SymbolDef, SymbolRef, SymbolKind } from "./symbols/extract.js";
 export { parseGitLog, gitHooksDir } from "./history/git.js";
 export {
   mineCommits,
@@ -24,6 +28,12 @@ export type {
 } from "./history/backtest.js";
 export type {
   IContextEngine,
+  PilotQuery,
+  PilotResult,
+  PilotFile,
+  OutlineSymbol,
+  OutlineResponse,
+  FindSymbolResponse,
   IndexResult,
   StatusResult,
   SubgraphResult,

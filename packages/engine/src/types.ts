@@ -139,6 +139,40 @@ export interface CheckResponse {
   skipped?: string;
 }
 
+export type { PilotResult, PilotFile, OutlineSymbol } from "./pilot/pilot.js";
+import type { OutlineSymbol, PilotResult } from "./pilot/pilot.js";
+
+export interface PilotQuery {
+  projectPath: string;
+  /** What the agent is about to do, in plain words */
+  task: string;
+  /** Files the agent already named or has open */
+  files?: string[];
+  /** Token budget for the map (default 1500) */
+  budget?: number;
+}
+
+export interface OutlineResponse {
+  path: string;
+  symbols: OutlineSymbol[];
+  /** Estimated tokens to read the whole file */
+  fileTokens: number;
+  indexed: boolean;
+}
+
+export interface SymbolLocation {
+  path: string;
+  line: number;
+}
+
+export interface FindSymbolResponse {
+  name: string;
+  definitions: Array<OutlineSymbol & { path: string; exported: boolean }>;
+  /** Uses grouped by file, definitions excluded */
+  uses: Array<{ path: string; lines: number[] }>;
+  totalUses: number;
+}
+
 export interface IContextEngine {
   init(): Promise<void>;
   index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
@@ -146,6 +180,11 @@ export interface IContextEngine {
   coChanges(params: CoChangeQuery): CoChangeResponse;
   impact(params: ImpactQuery): ImpactResponse;
   checkChange(params: CheckQuery): Promise<CheckResponse>;
+  /** Index and mine history if they're missing or older than maxAgeMs (default 5 min): cheap when nothing changed */
+  ensureFresh(params: { projectPath: string; maxAgeMs?: number }): Promise<void>;
+  pilot(params: PilotQuery): PilotResult;
+  outline(params: { projectPath: string; file: string }): OutlineResponse;
+  findSymbol(params: { projectPath: string; name: string; limit?: number }): FindSymbolResponse;
   status(params: { projectPath: string }): Promise<StatusResult>;
   graph(params: {
     target: string;
