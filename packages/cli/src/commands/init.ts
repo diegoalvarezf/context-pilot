@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { writeFileSync, mkdirSync, existsSync, readFileSync, appendFileSync } from "fs";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import chalk from "chalk";
 import ora from "ora";
@@ -12,7 +12,10 @@ const DEFAULT_CONFIG = {
   },
 };
 
-/** Writes `.context-pilot/config.json` unless it exists. Returns whether it was created. */
+/**
+ * Writes `.context-pilot/config.json` unless it exists. Returns whether it was created.
+ * Nothing else in the project is touched: the index lives in ~/.context-pilot, not here.
+ */
 export function initProject(root: string): { created: boolean; configFile: string } {
   const configDir = join(root, ".context-pilot");
   const configFile = join(configDir, "config.json");
@@ -25,15 +28,6 @@ export function initProject(root: string): { created: boolean; configFile: strin
     created_at: new Date().toISOString(),
   };
   writeFileSync(configFile, JSON.stringify(config, null, 2));
-
-  // Add .context-pilot/db.sqlite to .gitignore if it exists
-  const gitignorePath = join(root, ".gitignore");
-  if (existsSync(gitignorePath)) {
-    const gitignore = readFileSync(gitignorePath, "utf8");
-    if (!gitignore.includes(".context-pilot/")) {
-      appendFileSync(gitignorePath, "\n# context-pilot\n.context-pilot/db.sqlite\n");
-    }
-  }
   return { created: true, configFile };
 }
 

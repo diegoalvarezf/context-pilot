@@ -4,7 +4,6 @@ import { resolve } from "path";
 import chalk from "chalk";
 import ora from "ora";
 import { ContextEngine, gitHooksDir } from "context-pilot-engine";
-import { initProject } from "./init.js";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -61,7 +60,6 @@ export const setupCommand = new Command("setup")
     }
 
     console.log(chalk.bold(`Setting up context-pilot in ${root}\n`));
-    initProject(root);
 
     const spinner = ora("Indexing code and mining git history (first run may take a minute)...").start();
     const engine = new ContextEngine();
