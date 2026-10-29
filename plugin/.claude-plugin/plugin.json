@@ -1,11 +1,22 @@
 {
   "name": "context-pilot",
   "displayName": "context-pilot",
-  "version": "0.5.0",
-  "description": "Change-impact analysis from your git history: after each edit Claude hears which files usually change with it, and before it stops it checks for files it forgot.",
-  "author": { "name": "Diego Álvarez", "url": "https://diegoalvarezf.dev" },
+  "version": "0.6.1",
+  "description": "Pilots Claude's context from your code and git history: where to look for a task, the definition when it searches a symbol, what usually changes with each edit, and files it forgot before it stops.",
+  "author": {
+    "name": "Diego Álvarez",
+    "url": "https://diegoalvarezf.dev"
+  },
   "homepage": "https://github.com/diegoalvarezf/context-pilot",
   "repository": "https://github.com/diegoalvarezf/context-pilot",
   "license": "MIT",
-  "keywords": ["git", "impact", "co-change", "mcp", "refactoring"]
+  "keywords": [
+    "co-change",
+    "context",
+    "git",
+    "impact",
+    "mcp",
+    "refactoring",
+    "symbols"
+  ]
 }

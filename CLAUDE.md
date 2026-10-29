@@ -188,7 +188,7 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   ky 100 commits: map has an edited file 89%, edited files found 48%, tokens saved 40% (expand: 92% / 67% / 43%);
   express 81: 57% / 46% / 36% (expand: 64% / 58% / 37%); context-pilot 19: 68% / 31% / 23% (expand: 52% recall, 31%).
   At confidence ≥ 0.3: ky hit 93% on 61% of tasks, express 63% on 24%.
-- Plugin still pins 0.5.0: bump `plugin/` (hooks via `on`, skill, version) only after 0.6.0 is on npm.
+- Plugin 0.6.1: hooks go through `on` (prompt, search, edit, stop), MCP server and skill on 0.6.1. Bump `plugin/`, `.mcp.json` and `marketplace.json` with every release. npm 0.6.0 of the engine got stuck in staging: 0.6.0 is unusable, never reuse it.
 - Next: tasks in another language than the code (Spanish tasks match little); measure real agent sessions.
 - Known: `check` threshold calibrated on JS + TS (express, zod, ky), not yet Python / PHP; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.
