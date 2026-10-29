@@ -46,6 +46,25 @@ const DEFS: Record<string, Record<string, SymbolKind>> = {
     trait_declaration: "trait",
     enum_declaration: "enum",
   },
+  // struct / enum / actor / extension are all class_declaration: see swiftKind
+  swift: {
+    class_declaration: "class",
+    protocol_declaration: "interface",
+    function_declaration: "function",
+    protocol_function_declaration: "method",
+    init_declaration: "method",
+    typealias_declaration: "type",
+  },
+  csharp: {
+    class_declaration: "class",
+    struct_declaration: "class",
+    record_declaration: "class",
+    interface_declaration: "interface",
+    enum_declaration: "enum",
+    method_declaration: "method",
+    constructor_declaration: "method",
+    delegate_declaration: "type",
+  },
 };
 
 const CLASS_LIKE = new Set(["class", "interface", "trait", "enum"]);
@@ -57,22 +76,42 @@ const REF_NODES = new Set([
   "shorthand_property_identifier",
   "shorthand_property_identifier_pattern",
   "name", // PHP
+  "simple_identifier", // Swift
 ]);
 const MIN_REF_LENGTH = 3;
 const MAX_REFS_PER_FILE = 5000;
 const MAX_SIGNATURE = 160;
 
-/** First line of a declaration, without its body opener. */
+// Leading attributes and decorators: @MainActor, @objc(name), [Serializable], [DllImport("x")]
+const LEADING_ATTRIBUTES = /^((@[\w.]+(\([^)]*\))?|\[[^\]]*\])\s*)+/;
+
+/** First line of a declaration, without attributes before it or its body opener. */
 export function signatureOf(text: string): string {
-  const first = text.split("\n")[0].replace(/\s+/g, " ").trim();
+  const lines = text.split("\n");
+  let first = lines[0];
+  for (const l of lines) {
+    const rest = l.trim().replace(LEADING_ATTRIBUTES, "").trim();
+    if (rest) {
+      first = rest;
+      break;
+    }
+  }
+  first = first.replace(/\s+/g, " ").trim();
   const cut = first.replace(/\s*(\{|=>\s*\{?)\s*$/, "").replace(/:\s*$/, "");
   return cut.length > MAX_SIGNATURE ? `${cut.slice(0, MAX_SIGNATURE - 1)}…` : cut;
+}
+
+/** Swift's class_declaration covers class, struct, actor, enum and extension. */
+function swiftKind(node: Parser.SyntaxNode): SymbolKind | "extension" {
+  const k = node.childForFieldName("declaration_kind")?.text;
+  return k === "enum" ? "enum" : k === "extension" ? "extension" : "class";
 }
 
 function enclosingClass(node: Parser.SyntaxNode, defs: Record<string, SymbolKind>): string | null {
   for (let p = node.parent; p; p = p.parent) {
     const kind = defs[p.type];
-    if (kind && CLASS_LIKE.has(kind)) return p.childForFieldName("name")?.text ?? null;
+    // Last segment: an `extension Outer.Inner` adds methods to Inner
+    if (kind && CLASS_LIKE.has(kind)) return p.childForFieldName("name")?.text.split(".").pop() ?? null;
     if (kind) return null; // nested inside a function: not a method
   }
   return null;
@@ -99,7 +138,12 @@ export function extractSymbols(
   const refs = new Map<string, SymbolRef>();
 
   function visit(node: Parser.SyntaxNode): void {
-    let kind = defs[node.type];
+    let kind: SymbolKind | undefined = defs[node.type];
+    if (language === "swift" && node.type === "class_declaration") {
+      const k = swiftKind(node);
+      // An extension adds to a type defined elsewhere: its methods get it as parent, it isn't a new symbol
+      kind = k === "extension" ? undefined : k;
+    }
     let nameNode = kind ? node.childForFieldName("name") : null;
     let declNode = node;
 
@@ -125,7 +169,7 @@ export function extractSymbols(
         ? declNode.parent?.type === "export_statement" || declNode.type === "export_statement"
         : language === "python"
           ? !name.startsWith("_")
-          : !/\bprivate\b/.test(node.text.split("\n")[0]);
+          : !/\b(private|fileprivate)\b/.test(signatureOf(node.text));
       symbols.push({
         name,
         kind,

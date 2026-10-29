@@ -14,7 +14,12 @@ export async function initTreeSitter(): Promise<void> {
   initialized = true;
 }
 
-export async function loadLanguage(lang: "python" | "javascript" | "typescript" | "tsx" | "php" | "html" | "css"): Promise<Parser.Language> {
+export type Lang = "python" | "javascript" | "typescript" | "tsx" | "php" | "html" | "css" | "swift" | "csharp";
+
+// Grammars without a usable .wasm on npm ship with the engine (see grammars/README.md)
+const grammarsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "grammars");
+
+export async function loadLanguage(lang: Lang): Promise<Parser.Language> {
   if (languageCache.has(lang)) return languageCache.get(lang)!;
 
   await initTreeSitter();
@@ -27,6 +32,8 @@ export async function loadLanguage(lang: "python" | "javascript" | "typescript" 
     php:        require.resolve("tree-sitter-php/tree-sitter-php.wasm"),
     html:       require.resolve("tree-sitter-html/tree-sitter-html.wasm"),
     css:        require.resolve("tree-sitter-css/tree-sitter-css.wasm"),
+    swift:      join(grammarsDir, "tree-sitter-swift.wasm"),
+    csharp:     join(grammarsDir, "tree-sitter-c_sharp.wasm"),
   };
 
   const wasmPath = wasmMap[lang];
@@ -37,7 +44,7 @@ export async function loadLanguage(lang: "python" | "javascript" | "typescript" 
   return language;
 }
 
-export function getLanguageForFile(filePath: string): "python" | "javascript" | "typescript" | "tsx" | "php" | "html" | "css" | null {
+export function getLanguageForFile(filePath: string): Lang | null {
   const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
   switch (ext) {
     case ".py":   return "python";
@@ -49,6 +56,8 @@ export function getLanguageForFile(filePath: string): "python" | "javascript" | 
     case ".html":
     case ".htm":  return "html";
     case ".css":  return "css";
+    case ".swift": return "swift";
+    case ".cs":   return "csharp";
     default:      return null;
   }
 }
@@ -62,4 +71,6 @@ export const CHUNK_NODE_TYPES: Record<string, string[]> = {
   php:        ["function_definition", "class_declaration", "method_declaration"],
   html:       [], // falls back to module-level chunk
   css:        ["rule_set"],
+  swift:      ["class_declaration", "protocol_declaration", "function_declaration"],
+  csharp:     ["class_declaration", "struct_declaration", "interface_declaration", "record_declaration", "enum_declaration", "method_declaration", "constructor_declaration"],
 };

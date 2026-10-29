@@ -8,8 +8,8 @@ import { randomUUID } from "crypto";
 import { v5 as uuidv5 } from "uuid";
 import type { Chunk, GraphEdge } from "../types.js";
 import { loadLanguage, getLanguageForFile, initTreeSitter } from "./languages.js";
-import { extractChunks, extractImports } from "./chunker.js";
-import { extractSymbols } from "../symbols/extract.js";
+import { extractImports } from "./chunker.js";
+import { parseFile, parseInChild, parsesOutOfProcess, type ParsedFile } from "./parse.js";
 import { ImportResolver, resolveFileImports, type ImportEdge } from "./imports.js";
 import {
   upsertFile,
@@ -33,7 +33,7 @@ const IGNORE_DIRS = new Set([
   ".next", "coverage", ".venv", "venv", ".env",
 ]);
 
-const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css"]);
+const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css", ".swift", ".cs"]);
 
 /**
  * Stable id for a project root. The same folder must map to the same id however
@@ -107,7 +107,7 @@ export async function extractImportGraph(projectPath: string, absFiles: string[]
 
   for (const absPath of absFiles) {
     const lang = getLanguageForFile(absPath);
-    if (!lang) continue;
+    if (!lang || !IMPORT_LANGS.has(lang)) continue;
 
     let source: string;
     try { source = readFileSync(absPath, "utf8"); } catch { continue; }
@@ -164,6 +164,26 @@ async function buildGraphEdges(
   if (edges.length > 0) insertGraphEdges(db, pid, edges);
 }
 
+/** Languages with import rules: only these are parsed for the import graph */
+const IMPORT_LANGS = new Set(["javascript", "typescript", "tsx", "python", "php", "html", "css"]);
+
+function storeFile(
+  db: DatabaseSync,
+  pid: string,
+  absPath: string,
+  relPath: string,
+  lang: NonNullable<ReturnType<typeof getLanguageForFile>>,
+  hash: string,
+  fileId: string,
+  parsed: ParsedFile
+): void {
+  // Drop the old row first: its chunks reference the old file id
+  deleteFile(db, pid, relPath);
+  upsertFile(db, fileId, pid, relPath, lang, hash, statSync(absPath).mtimeMs);
+  insertChunks(db, parsed.chunks);
+  replaceFileSymbols(db, pid, relPath, parsed.symbols, parsed.refs);
+}
+
 async function indexFile(
   db: DatabaseSync,
   pid: string,
@@ -173,20 +193,10 @@ async function indexFile(
   source: string,
   hash: string
 ): Promise<void> {
-  const parser = new Parser();
-  parser.setLanguage(await loadLanguage(lang));
-  const tree = parser.parse(source);
-  try {
-    // Drop the old row first: its chunks reference the old file id
-    deleteFile(db, pid, relPath);
-    const fileId = randomUUID();
-    upsertFile(db, fileId, pid, relPath, lang, hash, statSync(absPath).mtimeMs);
-    insertChunks(db, extractChunks(source, fileId, lang, tree));
-    const { symbols, refs } = extractSymbols(lang, tree);
-    replaceFileSymbols(db, pid, relPath, symbols, refs);
-  } finally {
-    tree.delete();
-  }
+  const fileId = randomUUID();
+  const parsed = await parseFile({ lang, source, fileId });
+  if (!parsed) throw new Error("could not parse");
+  storeFile(db, pid, absPath, relPath, lang, hash, fileId, parsed);
 }
 
 export async function indexProject(
@@ -202,6 +212,7 @@ export async function indexProject(
   const allFiles = collectFiles(projectPath);
   let filesIndexed = 0;
   let filesSkipped = 0;
+  const deferred: { absPath: string; relPath: string; lang: NonNullable<ReturnType<typeof getLanguageForFile>>; source: string; hash: string; fileId: string }[] = [];
 
   for (const absPath of allFiles) {
     const relPath = relative(projectPath, absPath).replace(/\\/g, "/");
@@ -227,6 +238,11 @@ export async function indexProject(
       continue;
     }
 
+    if (parsesOutOfProcess(lang)) {
+      deferred.push({ absPath, relPath, lang, source, hash, fileId: randomUUID() });
+      continue;
+    }
+
     try {
       await indexFile(db, pid, absPath, relPath, lang, source, hash);
     } catch (err) {
@@ -237,6 +253,19 @@ export async function indexProject(
 
     filesIndexed++;
   }
+
+  // Swift / C# on Node 25+: one child process for all of them
+  const parsed = parseInChild(deferred.map((d) => ({ lang: d.lang, source: d.source, fileId: d.fileId })));
+  deferred.forEach((d, i) => {
+    const p = parsed[i];
+    if (!p) {
+      process.stderr.write(`[engine] failed to index ${d.relPath}\n`);
+      filesSkipped++;
+      return;
+    }
+    storeFile(db, pid, d.absPath, d.relPath, d.lang, d.hash, d.fileId, p);
+    filesIndexed++;
+  });
 
   // Files that are gone from disk
   const present = new Set(allFiles.map((f) => toRel(projectPath, f)));

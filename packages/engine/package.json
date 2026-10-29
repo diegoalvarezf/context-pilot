@@ -12,7 +12,8 @@
     "node": ">=22.13.0"
   },
   "files": [
-    "dist"
+    "dist",
+    "grammars"
   ],
   "type": "module",
   "main": "dist/index.js",
