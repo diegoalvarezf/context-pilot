@@ -6,7 +6,7 @@ import Parser from "web-tree-sitter";
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "crypto";
 import { v5 as uuidv5 } from "uuid";
-import type { Chunk, GraphEdge } from "../types.js";
+import type { GraphEdge } from "../types.js";
 import { loadLanguage, getLanguageForFile, initTreeSitter } from "./languages.js";
 import { extractImports } from "./chunker.js";
 import { parseFile, parseInChild, parsesOutOfProcess, type ParsedFile } from "./parse.js";

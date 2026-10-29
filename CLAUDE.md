@@ -49,7 +49,12 @@ parked/
 | `engine/src/pilot/bench.ts` | `bench`: replays commits (message = task) — recall of edited files and tokens vs grep + full reads |
 | `cli/src/agents.ts` | Hook input parsing and reply formats per agent; `searchedName` for grep / rg in shell commands |
 | `cli/src/agent-config.ts` | Pure add/remove of our hooks, MCP entries, Codex TOML block and AGENTS.md block per agent |
-| `cli/src/commands/on.ts` | `on <prompt|search|edit|stop> --hook --agent <a>`: the one hook entry point; session state in tmpdir |
+| `cli/src/commands/on.ts` | `on <prompt|search|edit|stop> --hook --agent <a>`: the one hook entry point; session state in tmpdir; `respond` returns an `Outcome` (text or silence + reason) and every call is traced |
+| `cli/src/trace.ts` | Trace: `writeTrace` (JSONL, rotation, never throws), `summarize`, transcript parsing (`toolCallsOf`) and `usefulness` (suggested files the agent opened or changed in its next 20 tool calls) |
+| `cli/src/commands/trace.ts` | `trace [--since] [-p] [--follow]`; skips `doctor`'s own calls |
+| `cli/src/doctor.ts`, `cli/src/commands/doctor.ts` | `doctor`: pure judgments + I/O (global install / dev link, plugin registry, hooks per agent, index, trace errors, runs the prompt hook and an MCP handshake) |
+| `engine/src/pilot/lang.ts` | Task terms in Spanish → English identifiers: dictionary (a `Map`, never an object: `constructor`!), accent folding, inflections |
+| `engine/src/indexer/parse.ts`, `parse-child.ts` | Parse a file into chunks + symbols; Swift/C# on Node 25+ go to one child Node with `--liftoff-only` |
 | `engine/src/storage/sqlite.ts` | `node:sqlite` — schema in `schema.ts`, queries |
 | `mcp-server/src/server.ts` | `createServer(engine, projectPath)` — registers the MCP tools |
 | `mcp-server/src/tools/*.ts` | One file per tool |
@@ -188,7 +193,20 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   ky 100 commits: map has an edited file 89%, edited files found 48%, tokens saved 40% (expand: 92% / 67% / 43%);
   express 81: 57% / 46% / 36% (expand: 64% / 58% / 37%); context-pilot 19: 68% / 31% / 23% (expand: 52% recall, 31%).
   At confidence ≥ 0.3: ky hit 93% on 61% of tasks, express 63% on 24%.
-- Plugin 0.6.1: hooks go through `on` (prompt, search, edit, stop), MCP server and skill on 0.6.1. Bump `plugin/`, `.mcp.json` and `marketplace.json` with every release. npm 0.6.0 of the engine got stuck in staging: 0.6.0 is unusable, never reuse it.
-- Next: tasks in another language than the code (Spanish tasks match little); measure real agent sessions.
+- Plugin: hooks go through `on` (prompt, search, edit, stop), MCP server and skill pinned to the release. Bump `plugin/`
+  (plugin.json, `.mcp.json`, hooks.json) and `.claude-plugin/marketplace.json` with every release. npm 0.6.0 of the
+  engine got stuck in staging: 0.6.0 is unusable, never reuse it.
+- 0.7.0: trace of every hook call (`~/.context-pilot/trace.jsonl` or `$CONTEXT_PILOT_HOME`, 5 MB rotation, no prompt
+  text), `trace` (summary, `--follow`, share of suggestions used from the agent's transcript), `doctor`; Spanish tasks
+  (`lang.ts`; bench `--tasks bench/tasks/*.es.json`): ky 66% → 94% hit / 35% → 54% recall / 37% → 69% answered,
+  express 53% → 59% / 43% → 50% / 23% → 35%, English unchanged; Swift and C# symbols (grammars bundled in
+  `engine/grammars`, ABI 14 for web-tree-sitter 0.24).
+- Node 25: V8's Turboshaft wasm compiler dies ("Fatal process out of memory: Zone", exit 133) on the Swift / C#
+  grammars; `--liftoff-only` avoids it but can't be set at runtime (`v8.setFlagsFromString` has no effect), hence the
+  child process. Recheck on newer Node and drop the child when fixed.
+- Dev link: a global `context-pilot` linked to this checkout makes `npx context-pilot@<same version>` (plugin hooks,
+  MCP server) run `packages/cli/dist`: rebuild after every change or the user's live sessions break. `doctor` warns.
+- Next: a control group for real sessions (same tasks with and without hooks); more task languages; Swift / C# in the
+  import graph.
 - Known: `check` threshold calibrated on JS + TS (express, zod, ky), not yet Python / PHP; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.

@@ -12,7 +12,7 @@ import { outlineSchema, handleOutline } from "./tools/outline.js";
 export function createServer(engine: IContextEngine, projectPath: string): McpServer {
   const server = new McpServer({
     name: "context-pilot",
-    version: "0.6.1",
+    version: "0.7.0",
   });
 
   server.tool(

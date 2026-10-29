@@ -67,6 +67,20 @@ full only what the map missed.
 | expressjs/express (JS) | 81 | 57% | 46% | **36%** |
 | context-pilot itself (TS) | 19 | 68% | 31% | **23%** |
 
+**Tasks in Spanish** (or written in another language than the code) match through a local dictionary of
+programming words: on ky, "que el retraso de los reintentos respete la cabecera de espera del servidor" leads with
+`#calculateRetryDelay` and `#retry`. With the same commits translated to Spanish (`bench/tasks/*.es.json`):
+
+| Repo | Map contains an edited file | Edited files in the map | Tokens saved | Tasks the hook answers |
+|---|---|---|---|---|
+| ky, Spanish tasks — before | 66% | 35% | 27% | 37% |
+| ky, Spanish tasks — now | **94%** | **54%** | **45%** | **69%** |
+| express, Spanish tasks — before | 53% | 43% | 31% | 23% |
+| express, Spanish tasks — now | **59%** | **50%** | **36%** | **35%** |
+
+English results are unchanged. On ky the Spanish run edges past the English one because each translated word also
+tries its synonyms (`respuesta` → `response`, `res`).
+
 Text search only, 1,500-token maps. Adding git history (`bench --expand`) raises the share of edited files found to
 52–67% and the savings to 31–43%, but that run is optimistic: today's history already contains the commit being
 tested. Commit messages are a hard, terse version of a real task; run `context-pilot bench` on your own repo.
@@ -75,6 +89,9 @@ tested. Commit messages are a hard, terse version of a real task; run `context-p
 and lists likely-affected files that are *not* part of the change. A file is only reported when one signal on its
 own reaches `--min-score` (default 0.6, where about half or more of the alerts were right in backtests). It also
 runs as a git pre-commit hook, so it helps without any agent.
+
+Languages: TypeScript, JavaScript, Python, PHP, Swift and C# for symbols; HTML and CSS are indexed as files. The
+import graph covers TS/JS, Python and PHP; the git history signal works for any file.
 
 Noise is filtered out: merge commits, bulk commits (more than 30 files), lockfiles, build output and changelogs.
 Renames are followed. Only what git tracks is indexed (`.gitignore` is respected). Nothing leaves your machine:
@@ -125,6 +142,20 @@ claude plugin install context-pilot@context-pilot
 
 The same hooks and MCP server, plus a skill on when to use the tools and an `impact-reviewer` agent on Haiku:
 a cheap second look at a plan or a diff.
+
+### Is it working?
+
+```bash
+context-pilot doctor            # install, hooks per agent, index, and runs the hook and the MCP server like the agent does
+context-pilot trace --since 7d  # what the hooks did: spoke, stayed silent (and why), failed, how fast
+context-pilot trace --follow    # watch the calls live while you use your agent
+```
+
+Every hook call adds a line to `~/.context-pilot/trace.jsonl` (or `$CONTEXT_PILOT_HOME`): agent, event, project,
+duration, result and reason, the map's confidence and the files it suggested. Never your prompt, only its length and a
+hash; the file rotates at 5 MB. `trace` also reads the agent's transcript to tell you how many of the suggested files
+the agent then opened or changed in its next 20 tool calls, per event. Some of them it would have opened anyway, so read
+it as an upper bound, but a number near zero means the hook is noise.
 
 ### From source
 
@@ -180,7 +211,9 @@ pnpm link -g ./packages/cli
 | `context-pilot pilot "<task>"` | The map for a task (`-f` files you know are involved, `-b` budget, `--json`) |
 | `context-pilot find <name>` | Where a symbol is defined and used (`--json`) |
 | `context-pilot outline <files...>` | Functions and classes of a file with line ranges (`--json`) |
-| `context-pilot bench [path]` | Replay past commits to measure how often the map finds the edited files and the tokens it saves (`-n`, `-b`, `--expand`, `--json`) |
+| `context-pilot bench [path]` | Replay past commits to measure how often the map finds the edited files and the tokens it saves (`-n`, `-b`, `--expand`, `--tasks <file>` with other task texts, e.g. translated, `--json`) |
+| `context-pilot trace` | What the hooks did and whether agents used their suggestions (`--since 7d`, `-p <project>`, `--follow`, `--json`) |
+| `context-pilot doctor [path]` | Checks install, hooks per agent, index and recent errors, and runs the prompt hook and an MCP handshake (`--skip-run`) |
 | `context-pilot on <event> --hook --agent <a>` | Hook entry point agents call (`prompt`, `search`, `edit`, `stop`); reads the agent's JSON on stdin |
 | `context-pilot init [path]` | Create `.context-pilot/config.json` |
 | `context-pilot index [path]` | Parse sources and mine git history (`--force` to rebuild) |
@@ -222,14 +255,17 @@ rewrites (rebase, reset) and renames trigger a full re-mine automatically.
 - [x] Ready-made hooks: git pre-commit and Claude Code Stop (`context-pilot hook install`)
 - [x] Proactive hint after each edit (Claude Code PostToolUse hook, `context-pilot hint`)
 - [x] Claude Code plugin: MCP server, hooks, skill and a Haiku `impact-reviewer` agent
-- [ ] Measure the effect on real agent sessions: same tasks with and without context-pilot (tokens, forgotten files, fix-up rounds)
+- [x] Trace every hook call (`trace`, `trace --follow`) and how many suggestions agents used; `doctor`
+- [ ] Measure the effect on real agent sessions with a control group: same tasks with and without context-pilot (tokens, forgotten files, fix-up rounds)
 - [ ] Migration mode: plan large changes (e.g. PHP 7 → 8) in ordered batches of files that change together, each with its tests
 - [ ] Learn from feedback: weigh hints by whether the agent acted on them
 - [x] Symbol index: definitions with line ranges and signatures, and where each name is used (`find_symbol`, `outline`)
 - [x] The pilot: a map for a task before the agent explores (`pilot`), on its own on each task
 - [x] Any agent: Codex, Cursor, Gemini CLI, GitHub Copilot hooks and MCP setup, `AGENTS.md`
 - [x] `bench`: how often the map finds the edited files and how many tokens it saves
-- [ ] Tasks in other languages than the code's (a Spanish task over English identifiers matches little today)
+- [x] Tasks in Spanish over English identifiers (local dictionary; bench with translated tasks)
+- [x] Swift and C# symbols
+- [ ] More task languages, and Swift / C# in the import graph
 - [ ] Impact visualizer (the old dashboard is parked in `parked/ui-server`)
 
 ---

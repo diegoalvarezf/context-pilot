@@ -1,7 +1,7 @@
 {
   "name": "context-pilot",
   "displayName": "context-pilot",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Pilots Claude's context from your code and git history: where to look for a task, the definition when it searches a symbol, what usually changes with each edit, and files it forgot before it stops.",
   "author": {
     "name": "Diego Álvarez",
