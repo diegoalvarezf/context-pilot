@@ -14,6 +14,7 @@ import { backtestCommand } from "./commands/backtest.js";
 import { pilotCommand } from "./commands/pilot.js";
 import { findCommand } from "./commands/find.js";
 import { outlineCommand } from "./commands/outline.js";
+import { benchCommand } from "./commands/bench.js";
 
 const program = new Command();
 
@@ -36,5 +37,6 @@ program.addCommand(hintCommand);
 program.addCommand(hookCommand);
 program.addCommand(coChangesCommand);
 program.addCommand(backtestCommand);
+program.addCommand(benchCommand);
 
 program.parse();

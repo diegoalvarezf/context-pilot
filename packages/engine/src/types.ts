@@ -150,6 +150,8 @@ export interface PilotQuery {
   files?: string[];
   /** Token budget for the map (default 1500) */
   budget?: number;
+  /** Expand the matched files with impact(): co-changes, importers, tests (default true) */
+  expand?: boolean;
 }
 
 export interface OutlineResponse {
@@ -185,6 +187,8 @@ export interface IContextEngine {
   pilot(params: PilotQuery): PilotResult;
   outline(params: { projectPath: string; file: string }): OutlineResponse;
   findSymbol(params: { projectPath: string; name: string; limit?: number }): FindSymbolResponse;
+  /** Project-relative paths of every indexed file */
+  indexedFiles(params: { projectPath: string }): string[];
   status(params: { projectPath: string }): Promise<StatusResult>;
   graph(params: {
     target: string;

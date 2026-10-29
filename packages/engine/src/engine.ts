@@ -234,7 +234,10 @@ export class ContextEngine implements IContextEngine {
       existsSync(join(params.projectPath, h.path))
     );
     const seeds = [...new Set([...files, ...hits.slice(0, PILOT_SEEDS).filter((h) => h.score >= 0.3).map((h) => h.path)])];
-    const impact = seeds.length ? this.impact({ projectPath: params.projectPath, files: seeds, limit: 15 }).results : [];
+    const impact =
+      seeds.length && params.expand !== false
+        ? this.impact({ projectPath: params.projectPath, files: seeds, limit: 15 }).results
+        : [];
 
     const sourceLines = new Map<string, string[] | null>();
     const read = (path: string) => {
@@ -295,6 +298,10 @@ export class ContextEngine implements IContextEngine {
       uses: uses.slice(0, params.limit ?? DEFAULT_FIND_LIMIT),
       totalUses: uses.reduce((a, u) => a + u.lines.length, 0),
     };
+  }
+
+  indexedFiles(params: { projectPath: string }): string[] {
+    return getIndexedPaths(this.db, projectId(params.projectPath));
   }
 
   private fileTokens(projectPath: string, path: string): number {
