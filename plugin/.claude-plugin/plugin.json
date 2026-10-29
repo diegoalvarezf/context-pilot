@@ -1,8 +1,8 @@
 {
   "name": "context-pilot",
   "displayName": "context-pilot",
-  "version": "0.5.0",
-  "description": "Change-impact analysis from your git history: after each edit Claude hears which files usually change with it, and before it stops it checks for files it forgot.",
+  "version": "0.6.0",
+  "description": "Pilots Claude's context: on each task a map of where to look (files, functions, line ranges, tests), where a name lives before it greps, what usually changes with each edit, and forgotten files before it stops. Saves the tokens spent grepping and reading whole files.",
   "author": { "name": "Diego Álvarez", "url": "https://diegoalvarezf.dev" },
   "homepage": "https://github.com/diegoalvarezf/context-pilot",
   "repository": "https://github.com/diegoalvarezf/context-pilot",

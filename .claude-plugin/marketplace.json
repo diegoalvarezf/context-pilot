@@ -5,7 +5,7 @@
     {
       "name": "context-pilot",
       "source": "./plugin",
-      "description": "Change-impact analysis from your git history, with hooks that warn Claude after each edit and before it stops.",
+      "description": "Pilots Claude's context from a code index and your git history: where to look for each task, and what else each change should touch.",
       "version": "0.5.0"
     }
   ]
