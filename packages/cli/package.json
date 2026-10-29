@@ -1,7 +1,7 @@
 {
   "name": "context-pilot",
-  "version": "0.5.0",
-  "description": "CLI for context-pilot \u2014 change-impact analysis for AI coding agents",
+  "version": "0.6.0",
+  "description": "Pilots your coding agent's context: where to look for each task, what else a change touches, which tests to run. Any agent, 100% local.",
   "license": "MIT",
   "repository": {
     "type": "git",

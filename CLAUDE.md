@@ -1,8 +1,9 @@
 # context-pilot — Claude Code Instructions
 
 ## Project overview
-Change-impact analysis for AI coding agents: "you changed X — here's what else usually changes with it, and why".
-Mines git history for co-changes and builds an import graph. MCP-compatible, 100% local.
+Pilots a coding agent's context: before it explores, a map of where to look for a task (files, symbols with line
+ranges, related files, tests); after it edits, what else usually changes. Symbol index + git co-changes + import
+graph. Any agent (Claude Code, Codex, Cursor, Gemini CLI, Copilot) through hooks and MCP. 100% local.
 
 **Repo:** https://github.com/diegoalvarezf/context-pilot
 **Stack:** TypeScript/Node.js 22+ — everything is TypeScript, no Python, no embeddings
@@ -42,6 +43,13 @@ parked/
 | `engine/src/indexer/imports.ts` | `ImportResolver` — specifier → project file (`./x.js`→`x.ts`, index files, Python relative/absolute, PHP namespaces) |
 | `engine/src/impact/impact.ts` | Pure impact scoring: co-changes + dependents + dependencies + tests, noisy-OR, reasons |
 | `engine/src/graph/graph.ts` | `DiGraph` — subgraph traversal, shortest paths |
+| `engine/src/symbols/extract.ts` | Symbol defs (kind, parent, lines, signature, exported) and name uses per file, from tree-sitter |
+| `engine/src/pilot/search.ts` | Text search over symbol names and paths: identifier-aware terms, idf, coverage (confidence) |
+| `engine/src/pilot/pilot.ts` | Pure ranking (search hits + impact, noisy-OR) and the map composed within a token budget |
+| `engine/src/pilot/bench.ts` | `bench`: replays commits (message = task) — recall of edited files and tokens vs grep + full reads |
+| `cli/src/agents.ts` | Hook input parsing and reply formats per agent; `searchedName` for grep / rg in shell commands |
+| `cli/src/agent-config.ts` | Pure add/remove of our hooks, MCP entries, Codex TOML block and AGENTS.md block per agent |
+| `cli/src/commands/on.ts` | `on <prompt|search|edit|stop> --hook --agent <a>`: the one hook entry point; session state in tmpdir |
 | `engine/src/storage/sqlite.ts` | `node:sqlite` — schema in `schema.ts`, queries |
 | `mcp-server/src/server.ts` | `createServer(engine, projectPath)` — registers the MCP tools |
 | `mcp-server/src/tools/*.ts` | One file per tool |
@@ -172,6 +180,15 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   run from the npx cache they use `npx -y context-pilot@<version>` instead (`launcherArgv` in `hook.ts`).
   Pre-commit warns (`|| true`) unless `--strict`. Claude Stop hook = `check --claude-hook`: reads stdin, does
   nothing when `stop_hook_active`, exits 2 with the list on stderr (fed back to Claude), any error → exit 0.
-- Next: phase 2 symbol-level references.
+- Pilot (0.6.0): `symbols` / `symbol_refs` tables (by project + path), `pilot` / `find_symbol` / `outline` MCP tools
+  and CLI commands, `ensureFresh` (index when stale; hooks use 30 min), indexing only git-tracked files, hooks for
+  every agent through `on`, `setup` detecting agents, `AGENTS.md` block. `node:sqlite` in Node 22 has no FTS5, so
+  search is in memory. Prompt hook only answers when confidence (idf coverage of the task by the top files) ≥ 0.3.
+- Bench (2026-10-29, text search only, budget 1500; `--expand` adds history but is optimistic):
+  ky 100 commits: map has an edited file 89%, edited files found 48%, tokens saved 40% (expand: 92% / 67% / 43%);
+  express 81: 57% / 46% / 36% (expand: 64% / 58% / 37%); context-pilot 19: 68% / 31% / 23% (expand: 52% recall, 31%).
+  At confidence ≥ 0.3: ky hit 93% on 61% of tasks, express 63% on 24%.
+- Plugin still pins 0.5.0: bump `plugin/` (hooks via `on`, skill, version) only after 0.6.0 is on npm.
+- Next: tasks in another language than the code (Spanish tasks match little); measure real agent sessions.
 - Known: `check` threshold calibrated on JS + TS (express, zod, ky), not yet Python / PHP; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.
