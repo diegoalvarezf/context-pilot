@@ -23,6 +23,8 @@ export interface HookInput {
   toolInput: Record<string, unknown>;
   /** The agent is already continuing because of a stop hook: never block again */
   stopActive: boolean;
+  /** The agent's transcript file, when it sends one */
+  transcriptPath: string | null;
 }
 
 export interface HookReply {
@@ -53,6 +55,7 @@ export function parseHookInput(raw: string): HookInput {
     toolName: str(j.tool_name) ?? str(j.toolName),
     toolInput: asObject(j.tool_input ?? j.toolArgs ?? j.toolInput),
     stopActive: j.stop_hook_active === true || (typeof j.loop_count === "number" && j.loop_count > 0),
+    transcriptPath: str(j.transcript_path) ?? str(j.transcriptPath),
   };
 }
 

@@ -10,6 +10,8 @@ import { hintCommand } from "./commands/hint.js";
 import { hookCommand } from "./commands/hook.js";
 import { setupCommand } from "./commands/setup.js";
 import { CLI_VERSION } from "./version.js";
+import { traceCommand } from "./commands/trace.js";
+import { doctorCommand } from "./commands/doctor.js";
 import { backtestCommand } from "./commands/backtest.js";
 import { pilotCommand } from "./commands/pilot.js";
 import { findCommand } from "./commands/find.js";
@@ -40,5 +42,7 @@ program.addCommand(coChangesCommand);
 program.addCommand(backtestCommand);
 program.addCommand(benchCommand);
 program.addCommand(onCommand);
+program.addCommand(traceCommand);
+program.addCommand(doctorCommand);
 
 program.parse();

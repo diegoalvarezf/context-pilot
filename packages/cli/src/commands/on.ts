@@ -13,6 +13,8 @@ import { AGENTS, editedFiles, formatReply, HOOK_EVENTS, parseHookInput, searched
 import { HOOK_FLAG } from "../agent-config.js";
 import { EMPTY_HINT_STATE, formatHint, pickHints, recordHint, stateFileName, type HintState } from "../hint.js";
 import { DEFAULT_HINT_MIN_SCORE } from "./hint.js";
+import { promptHash, writeTrace, type TraceRecord, type TraceResult } from "../trace.js";
+import { CLI_VERSION } from "../version.js";
 
 // The single hook entry point for every agent: `context-pilot on <event> --hook --agent <a>`.
 // It never gets in the agent's way: anything unexpected means "nothing to say".
@@ -58,20 +60,34 @@ function saveState(sessionId: string, state: SessionState): void {
   }
 }
 
-/** What to tell the agent for this event, or null. */
-export async function respond(event: HookEvent, input: HookInput, root: string): Promise<string | null> {
+/** What the hook decided: the text for the agent (or null) and why, for the trace. */
+export interface Outcome {
+  text: string | null;
+  reason?: string;
+  confidence?: number;
+  files?: string[];
+}
+
+const silent = (reason: string, extra: Omit<Outcome, "text" | "reason"> = {}): Outcome => ({ text: null, reason, ...extra });
+
+/** What to tell the agent for this event, and why it says it or not. */
+export async function respond(event: HookEvent, input: HookInput, root: string): Promise<Outcome> {
   const engine = new ContextEngine();
   try {
     if (event === "stop") {
-      if (input.stopActive) return null;
+      if (input.stopActive) return silent("stop hook already active");
       await engine.mineHistory({ projectPath: root });
       const r = await engine.checkChange({ projectPath: root, minScore: DEFAULT_CHECK_MIN_SCORE, limit: 5 });
-      if (r.missing.length === 0) return null;
-      return (
-        "context-pilot: these files usually change together with the ones you edited but are untouched. " +
-        "Check whether any needs updating; if none does, say so and stop.\n" +
-        r.missing.map((m) => `- ${m.path}: ${m.reasons[0] ?? ""}`).join("\n")
-      );
+      if (r.skipped) return silent(r.skipped);
+      if (r.changed.length === 0) return silent("no uncommitted changes");
+      if (r.missing.length === 0) return silent("nothing looks missing");
+      return {
+        text:
+          "context-pilot: these files usually change together with the ones you edited but are untouched. " +
+          "Check whether any needs updating; if none does, say so and stop.\n" +
+          r.missing.map((m) => `- ${m.path}: ${m.reasons[0] ?? ""}`).join("\n"),
+        files: r.missing.map((m) => m.path),
+      };
     }
 
     await engine.ensureFresh({ projectPath: root, maxAgeMs: HOOK_FRESH_MS });
@@ -79,25 +95,39 @@ export async function respond(event: HookEvent, input: HookInput, root: string):
 
     if (event === "prompt") {
       const task = input.prompt?.trim() ?? "";
-      if (task.length < MIN_PROMPT_CHARS) return null;
+      if (task.length < MIN_PROMPT_CHARS) return silent("prompt too short");
       const map = engine.pilot({ projectPath: root, task, budget: PROMPT_BUDGET });
-      if (map.files.length === 0 || map.confidence < PROMPT_MIN_CONFIDENCE) return null;
+      if (map.files.length === 0) return silent("no matching code", { confidence: map.confidence });
+      if (map.confidence < PROMPT_MIN_CONFIDENCE) {
+        return silent("low confidence", { confidence: map.confidence, files: map.files.map((f) => f.path) });
+      }
       saveState(input.sessionId, { ...state, hinted: [...new Set([...state.hinted, ...map.files.map((f) => f.path)])] });
-      return `${map.text}\n(context-pilot: from the code index and git history. Tools: pilot, find_symbol, outline.)`;
+      return {
+        text: `${map.text}\n(context-pilot: from the code index and git history. Tools: pilot, find_symbol, outline.)`,
+        confidence: map.confidence,
+        files: map.files.map((f) => f.path),
+      };
     }
 
     if (event === "search") {
       const name = searchedName(input);
-      if (!name || state.searched.includes(name)) return null;
+      if (!name) return silent("not a symbol search");
+      if (state.searched.includes(name)) return silent("already said");
       const found = engine.findSymbol({ projectPath: root, name, limit: 10 });
-      if (found.definitions.length === 0) return null;
+      if (found.definitions.length === 0) return silent("symbol not in the index");
       saveState(input.sessionId, { ...state, searched: [...state.searched, name] });
-      return `context-pilot already knows where this is:\n${formatFindSymbol(found)}`;
+      return {
+        text: `context-pilot already knows where this is:\n${formatFindSymbol(found)}`,
+        files: [...new Set(found.definitions.map((d) => d.path))],
+      };
     }
 
     // edit
     const cwd = input.cwd ?? root;
-    for (const file of editedFiles(input)) {
+    const files = editedFiles(input);
+    if (files.length === 0) return silent("no edited file in the tool call");
+    let reason = "edited file outside the project";
+    for (const file of files) {
       const abs = isAbsolute(file) ? file : resolve(cwd, file);
       if (relative(root, abs).startsWith("..")) continue;
       const rel = toProjectPath(root, abs);
@@ -105,9 +135,10 @@ export async function respond(event: HookEvent, input: HookInput, root: string):
       const impact = engine.impact({ projectPath: root, files: [abs], limit: 15 });
       const hints = pickHints(impact.results, state, { minScore: DEFAULT_HINT_MIN_SCORE, limit: 3 });
       saveState(input.sessionId, { ...state, ...recordHint(state, rel, hints) });
-      if (hints.length) return formatHint(rel, hints);
+      if (hints.length) return { text: formatHint(rel, hints), files: hints.map((h) => h.path) };
+      reason = impact.results.length === 0 ? "no history for this file" : "nothing new above the threshold";
     }
-    return null;
+    return silent(reason);
   } finally {
     engine.close();
   }
@@ -120,18 +151,49 @@ export const onCommand = new Command("on")
   .option("-p, --project <path>", "Project root path (default: the git repo of the session)")
   .option(HOOK_FLAG, "Marks the hooks context-pilot installed", false)
   .action(async (event: string, options: { agent: string; project?: string }) => {
+    const started = Date.now();
+    let input: HookInput | null = null;
+    let root: string | null = null;
+    let result: TraceResult = "skipped";
+    let outcome: Outcome = { text: null };
     try {
-      if (!HOOK_EVENTS.includes(event as HookEvent) || !AGENTS.includes(options.agent as Agent)) return;
-      const input = parseHookInput(await readStdin());
-      const root = options.project ? resolve(options.project) : gitRoot(input.cwd ?? process.cwd());
-      if (!root || !existsSync(join(root, ".git"))) return;
-      const text = await respond(event as HookEvent, input, root);
-      if (!text) return;
-      const reply = formatReply(options.agent as Agent, event as HookEvent, text);
-      if (reply.stdout) process.stdout.write(reply.stdout + "\n");
-      if (reply.stderr) process.stderr.write(reply.stderr + "\n");
-      process.exitCode = reply.exitCode;
-    } catch {
+      if (!HOOK_EVENTS.includes(event as HookEvent)) outcome = silent("unknown event");
+      else if (!AGENTS.includes(options.agent as Agent)) outcome = silent("unknown agent");
+      else {
+        input = parseHookInput(await readStdin());
+        root = options.project ? resolve(options.project) : gitRoot(input.cwd ?? process.cwd());
+        if (!root || !existsSync(join(root, ".git"))) outcome = silent("not a git repository");
+        else {
+          outcome = await respond(event as HookEvent, input, root);
+          result = outcome.text ? "said" : "silent";
+          if (outcome.text) {
+            const reply = formatReply(options.agent as Agent, event as HookEvent, outcome.text);
+            if (reply.stdout) process.stdout.write(reply.stdout + "\n");
+            if (reply.stderr) process.stderr.write(reply.stderr + "\n");
+            process.exitCode = reply.exitCode;
+          }
+        }
+      }
+    } catch (err) {
+      result = "error";
+      outcome = silent(String(err instanceof Error ? err.message : err).slice(0, 200));
       process.exitCode = 0;
     }
+    const prompt = event === "prompt" ? input?.prompt?.trim() : undefined;
+    const record: TraceRecord = {
+      ts: new Date(started).toISOString(),
+      agent: options.agent,
+      event,
+      project: root,
+      session: input?.sessionId ?? "default",
+      ms: Date.now() - started,
+      result,
+      ...(outcome.reason && result !== "said" ? { reason: outcome.reason } : {}),
+      ...(outcome.confidence !== undefined ? { confidence: Math.round(outcome.confidence * 100) / 100 } : {}),
+      ...(outcome.files?.length ? { files: outcome.files } : {}),
+      ...(prompt ? { prompt: { length: prompt.length, hash: promptHash(prompt) } } : {}),
+      ...(input?.transcriptPath ? { transcript: input.transcriptPath } : {}),
+      version: CLI_VERSION,
+    };
+    writeTrace(record);
   });
