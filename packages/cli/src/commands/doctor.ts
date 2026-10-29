@@ -106,7 +106,9 @@ export const doctorCommand = new Command("doctor")
 
     const plugin = contextPilotPlugin(readJson(join(homedir(), ".claude", "plugins", "installed_plugins.json")));
     const which = spawnSync(process.platform === "win32" ? "where" : "which", ["context-pilot"], { encoding: "utf8" });
-    const globalBin = which.status === 0 ? which.stdout.trim().split("\n")[0] : null;
+    // npx puts its own cache on PATH while it runs us: that is not a global install
+    const globalBin =
+      which.status === 0 ? (which.stdout.trim().split("\n").find((p) => !/[\\/]_npx[\\/]/.test(p)) ?? null) : null;
     if (globalBin) {
       let real = globalBin;
       try {
