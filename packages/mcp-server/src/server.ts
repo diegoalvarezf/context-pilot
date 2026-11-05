@@ -77,7 +77,7 @@ function recordTelemetry(
 export function createServer(engine: IContextEngine, projectPath: string): McpServer {
   const server = new McpServer({
     name: "context-pilot",
-    version: "0.7.1",
+    version: "0.7.2",
   });
 
   server.tool(

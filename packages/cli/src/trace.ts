@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { editedFiles } from "./agents.js";
 
 // Every hook call leaves one JSON line in ~/.context-pilot/trace.jsonl: whether it
 // spoke, stayed silent (and why), failed or was skipped, how long it took and what
@@ -213,6 +214,21 @@ export function touches(call: ToolCall, file: string): boolean {
   if (typeof cmd === "string" && cmd.includes(target)) return true;
   const scope = call.input.path ?? call.input.glob;
   return typeof scope === "string" && scope !== "." && matches(scope);
+}
+
+/** Tools that change a file; edits made through a shell command (sed -i, a heredoc) can't be told apart from reads */
+const EDIT_TOOLS = /^(edit|multiedit|write|notebookedit|str_replace|search_replace|apply_patch|replace|create)/i;
+const PATCH_HEADER = /^\*\*\* (Update|Add) File: /m;
+
+/** Files these tool calls changed, as the agent named them. */
+export function editedPaths(calls: ToolCall[]): string[] {
+  return [
+    ...new Set(
+      calls
+        .filter((c) => EDIT_TOOLS.test(c.name) || PATCH_HEADER.test(String(c.input.command ?? c.input.input ?? c.input.patch ?? "")))
+        .flatMap((c) => editedFiles({ toolInput: c.input }))
+    ),
+  ];
 }
 
 export const FOLLOW_WINDOW = 20;

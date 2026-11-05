@@ -106,3 +106,33 @@ describe("checkChange", () => {
     expect(res.missing.map((r) => r.path)).toEqual(["src/session.ts"]);
   });
 });
+
+describe("checkChange with only", () => {
+  beforeEach(() => {
+    for (let i = 0; i < 3; i++) commitFiles(`pair ${i}`, ["src/auth.ts", "src/session.ts"]);
+    for (let i = 0; i < 3; i++) commitFiles(`other ${i}`, ["src/cart.ts", "src/price.ts"]);
+  });
+
+  it("reports only the partners of those files", async () => {
+    await engine.mineHistory({ projectPath: repo });
+    write(["src/auth.ts", "src/cart.ts"], "edit");
+
+    const res = await engine.checkChange({ projectPath: repo, only: ["src/cart.ts"] });
+    expect(res.changed.map((c) => c.path)).toEqual(["src/auth.ts", "src/cart.ts"]);
+    expect(res.missing.map((r) => r.path)).toEqual(["src/price.ts"]);
+  });
+
+  it("counts the rest of the change as touched", async () => {
+    await engine.mineHistory({ projectPath: repo });
+    write(["src/cart.ts", "src/price.ts"], "edit");
+    expect((await engine.checkChange({ projectPath: repo, only: ["src/cart.ts"] })).missing).toEqual([]);
+  });
+
+  it("reports nothing when none of them changed", async () => {
+    await engine.mineHistory({ projectPath: repo });
+    write(["src/auth.ts"], "edit");
+    const res = await engine.checkChange({ projectPath: repo, only: ["src/cart.ts"] });
+    expect(res.changed).toHaveLength(1);
+    expect(res.missing).toEqual([]);
+  });
+});

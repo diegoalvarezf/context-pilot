@@ -14,7 +14,7 @@ import { AGENTS, editedFiles, formatReply, HOOK_EVENTS, parseHookInput, searched
 import { HOOK_FLAG } from "../agent-config.js";
 import { EMPTY_HINT_STATE, formatHint, pickHints, recordHint, stateFileName, type HintState } from "../hint.js";
 import { DEFAULT_HINT_MIN_SCORE } from "./hint.js";
-import { promptHash, writeTrace, type TraceRecord, type TraceResult } from "../trace.js";
+import { editedPaths, promptHash, toolCallsOf, writeTrace, type TraceRecord, type TraceResult } from "../trace.js";
 import { CLI_VERSION } from "../version.js";
 
 // The single hook entry point for every agent: `context-pilot on <event> --hook --agent <a>`.
@@ -38,14 +38,16 @@ function gitRoot(dir: string): string | null {
 // Per agent session: what we already said, so nothing is repeated
 interface SessionState extends HintState {
   searched: string[];
+  /** Files the stop hook already pointed at */
+  warned: string[];
 }
 const stateDir = join(tmpdir(), "context-pilot");
 function loadState(sessionId: string): SessionState {
   try {
     const s = JSON.parse(readFileSync(join(stateDir, stateFileName(sessionId)), "utf8")) as Partial<SessionState>;
-    return { ...EMPTY_HINT_STATE, searched: [], ...s };
+    return { ...EMPTY_HINT_STATE, searched: [], warned: [], ...s };
   } catch {
-    return { ...EMPTY_HINT_STATE, searched: [] };
+    return { ...EMPTY_HINT_STATE, searched: [], warned: [] };
   }
 }
 function saveState(sessionId: string, state: SessionState): void {
@@ -55,6 +57,22 @@ function saveState(sessionId: string, state: SessionState): void {
   } catch {
     // a lost state only means something may be said twice
   }
+}
+
+/** Project files this session edited, from its transcript and the edit hook; null when there's no way to know. */
+function sessionEdits(input: HookInput, root: string, state: SessionState): string[] | null {
+  let calls: ReturnType<typeof toolCallsOf> = [];
+  try {
+    if (input.transcriptPath) calls = toolCallsOf(readFileSync(input.transcriptPath, "utf8"));
+  } catch {
+    // no transcript: the edit hook may still know
+  }
+  if (calls.length === 0 && state.edited.length === 0) return null;
+  const inProject = editedPaths(calls)
+    .map((f) => relative(root, isAbsolute(f) ? f : resolve(input.cwd ?? root, f)))
+    .filter((f) => !f.startsWith(".."))
+    .map((f) => toProjectPath(root, f));
+  return [...new Set([...state.edited, ...inProject])];
 }
 
 /** What the hook decided: the text for the agent (or null) and why, for the trace. */
@@ -74,16 +92,32 @@ export async function respond(event: HookEvent, input: HookInput, root: string):
     if (event === "stop") {
       if (input.stopActive) return silent("stop hook already active");
       await engine.mineHistory({ projectPath: root });
-      const r = await engine.checkChange({ projectPath: root, minScore: DEFAULT_CHECK_MIN_SCORE, limit: 5 });
+      const check = (only?: string[]) => engine.checkChange({ projectPath: root, minScore: DEFAULT_CHECK_MIN_SCORE, limit: 5, only });
+      let r = await check();
       if (r.skipped) return silent(r.skipped);
       if (r.changed.length === 0) return silent("no uncommitted changes");
       if (r.missing.length === 0) return silent("nothing looks missing");
+
+      // Uncommitted work may not be this session's: it only answers for what it edited
+      const state = loadState(input.sessionId);
+      const edited = sessionEdits(input, root, state);
+      if (edited) {
+        const mine = r.changed.some((c) => edited.includes(c.path) || (c.oldPath && edited.includes(c.oldPath)));
+        if (!mine) return silent("changes aren't from this session");
+        r = await check(edited);
+        if (r.missing.length === 0) return silent("nothing looks missing");
+      }
+
+      // The changes stay uncommitted across stops: each file is worth saying once
+      const missing = r.missing.filter((m) => !state.warned.includes(m.path));
+      if (missing.length === 0) return silent("already said");
+      saveState(input.sessionId, { ...state, warned: [...state.warned, ...missing.map((m) => m.path)] });
       return {
         text:
           "context-pilot: these files usually change together with the ones you edited but are untouched. " +
           "Check whether any needs updating; if none does, say so and stop.\n" +
-          r.missing.map((m) => `- ${m.path}: ${m.reasons[0] ?? ""}`).join("\n"),
-        files: r.missing.map((m) => m.path),
+          missing.map((m) => `- ${m.path}: ${m.reasons[0] ?? ""}`).join("\n"),
+        files: missing.map((m) => m.path),
       };
     }
 

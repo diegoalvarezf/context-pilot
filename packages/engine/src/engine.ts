@@ -193,9 +193,9 @@ export class ContextEngine implements IContextEngine {
 
     const changed = await readWorkingChanges(params.projectPath, { staged: params.staged, base: params.base });
     // Deleted and renamed-away paths still matter: history knows their partners
-    const queried = [...new Set(changed.flatMap((c) => (c.oldPath ? [c.path, c.oldPath] : [c.path])))].filter(
-      (p) => !defaultIgnore(p)
-    );
+    const pathsOf = (list: typeof changed) =>
+      [...new Set(list.flatMap((c) => (c.oldPath ? [c.path, c.oldPath] : [c.path])))].filter((p) => !defaultIgnore(p));
+    const queried = pathsOf(changed);
     if (queried.length === 0) return { ...empty, changed };
     // Same cut-off as mining: a change this large is a bulk edit, its co-changes are noise
     if (queried.length > DEFAULT_MAX_FILES_PER_COMMIT) {
@@ -203,7 +203,10 @@ export class ContextEngine implements IContextEngine {
     }
 
     const minScore = params.minScore ?? DEFAULT_CHECK_MIN_SCORE;
-    const impact = this.impact({ projectPath: params.projectPath, files: queried, limit: IMPACT_COCHANGE_POOL });
+    const only = params.only && new Set(params.only);
+    const sources = only ? pathsOf(changed.filter((c) => only.has(c.path) || (c.oldPath && only.has(c.oldPath)))) : queried;
+    if (sources.length === 0) return { ...empty, changed };
+    const impact = this.impact({ projectPath: params.projectPath, files: sources, limit: IMPACT_COCHANGE_POOL });
     const inChange = new Set(queried);
     // Threshold on the strongest single signal: the noisy-OR score saturates when many files change
     const missing = impact.results

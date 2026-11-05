@@ -216,3 +216,8 @@ pnpm test          # run all tests (vitest, engine and cli packages)
   import graph.
 - Known: `check` threshold calibrated on JS + TS (express, zod, ky), not yet Python / PHP; the watcher does not
   rebuild `file_imports` (only a full `index` does); PHP namespace resolution needs an unambiguous path suffix.
+- 0.7.2: the stop hook says each file once per session (`warned` in the session state) and only answers for files the
+  session edited (`only` in `checkChange`; from the transcript and the edit hook, whole change when it can't know). A
+  week of real use before it: 43 warnings, 7 different, one session warned 22 times with the same 5 files and another
+  warned with no edits at all. Replayed on those transcripts: silent without edits, once with them. Edits through a
+  shell command aren't seen: such a session stays silent rather than guess.
