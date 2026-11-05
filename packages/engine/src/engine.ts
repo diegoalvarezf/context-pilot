@@ -18,6 +18,9 @@ import type {
   IndexResult,
   StatusResult,
   SubgraphResult,
+  RecordUsageParams,
+  UsageStats,
+  UsageSummary,
 } from "./types.js";
 import {
   openDatabase,
@@ -35,6 +38,8 @@ import {
   findSymbolDefs,
   findSymbolRefs,
   type SymbolRow,
+  recordMcpUsage,
+  getMcpUsageStats,
 } from "./storage/sqlite.js";
 import { searchFiles } from "./pilot/search.js";
 import { DEFAULT_PILOT_BUDGET, pilot, type OutlineSymbol } from "./pilot/pilot.js";
@@ -380,6 +385,15 @@ export class ContextEngine implements IContextEngine {
         weight: e.attrs.weight,
       })),
     };
+  }
+
+
+  recordUsage(params: RecordUsageParams): void {
+    recordMcpUsage(this.db, params);
+  }
+
+  getUsageStats(params?: { projectPath?: string }): UsageStats {
+    return getMcpUsageStats(this.db, params?.projectPath);
   }
 
   close(): void {

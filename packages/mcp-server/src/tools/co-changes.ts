@@ -11,6 +11,7 @@ export const coChangesSchema = z.object({
     .number()
     .optional()
     .describe("Minimum number of past commits where the files changed together"),
+  path: z.string().optional().describe("Optional project root path on disk; defaults to the server working directory"),
 });
 
 export type CoChangesInput = z.infer<typeof coChangesSchema>;

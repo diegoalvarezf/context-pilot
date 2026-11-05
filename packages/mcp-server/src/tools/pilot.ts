@@ -5,6 +5,7 @@ export const pilotSchema = z.object({
   task: z.string().min(1).describe("What you are about to do, in plain words (the user's request works)"),
   files: z.array(z.string()).optional().describe("Files you already know are involved, if any"),
   budget: z.number().optional().default(1500).describe("Max tokens for the map"),
+  path: z.string().optional().describe("Optional project root path on disk; defaults to the server working directory"),
 });
 
 export type PilotInput = z.infer<typeof pilotSchema>;

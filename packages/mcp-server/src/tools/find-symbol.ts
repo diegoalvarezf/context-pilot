@@ -4,6 +4,7 @@ import { formatFindSymbol, type IContextEngine } from "context-pilot-engine";
 export const findSymbolSchema = z.object({
   name: z.string().min(1).describe("Function, class, method, type or constant name (Class.method works)"),
   limit: z.number().optional().default(30).describe("Max files with uses to list"),
+  path: z.string().optional().describe("Optional project root path on disk; defaults to the server working directory"),
 });
 
 export type FindSymbolInput = z.infer<typeof findSymbolSchema>;

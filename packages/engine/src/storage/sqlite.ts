@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import { applySchema } from "./schema.js";
-import type { Chunk, GraphEdge } from "../types.js";
+import type { Chunk, GraphEdge, RecordUsageParams, UsageStats, UsageSummary } from "../types.js";
 import type { FileStats, PairStats } from "../history/cochange.js";
 import type { ImportEdge } from "../indexer/imports.js";
 import type { SymbolDef, SymbolRef } from "../symbols/extract.js";
@@ -388,4 +388,79 @@ export function findSymbolRefs(
 
 export function countSymbols(db: DatabaseSync, projectId: string): number {
   return (db.prepare(`SELECT COUNT(*) AS n FROM symbols WHERE project_id = ?`).get(projectId) as { n: number }).n;
+}
+
+
+// ── Telemetry (mcp_usage) ───────────────────────────────────────────────────
+
+export function recordMcpUsage(db: DatabaseSync, usage: RecordUsageParams): void {
+  db.prepare(`
+    INSERT INTO mcp_usage (created_at, project_path, tool, response_tokens, full_files_tokens, saved_tokens)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    usage.createdAt ?? Date.now(),
+    usage.projectPath,
+    usage.tool,
+    usage.responseTokens,
+    usage.fullFilesTokens,
+    usage.savedTokens
+  );
+}
+
+export function getMcpUsageStats(db: DatabaseSync, filterProjectPath?: string): UsageStats {
+  const globalRow = db.prepare(`
+    SELECT 
+      COUNT(*) AS calls,
+      COALESCE(SUM(response_tokens), 0) AS response_tokens,
+      COALESCE(SUM(full_files_tokens), 0) AS full_files_tokens,
+      COALESCE(SUM(saved_tokens), 0) AS saved_tokens
+    FROM mcp_usage
+  `).get() as { calls: number; response_tokens: number; full_files_tokens: number; saved_tokens: number };
+
+  const fullGlobal = Number(globalRow.full_files_tokens);
+  const savedGlobal = Number(globalRow.saved_tokens);
+
+  const globalSummary: UsageSummary = {
+    calls: Number(globalRow.calls),
+    responseTokens: Number(globalRow.response_tokens),
+    fullFilesTokens: fullGlobal,
+    savedTokens: savedGlobal,
+    savingsPercent: fullGlobal > 0 ? Math.round((savedGlobal / fullGlobal) * 1000) / 10 : 0,
+  };
+
+  const projectRows = db.prepare(`
+    SELECT 
+      project_path,
+      COUNT(*) AS calls,
+      COALESCE(SUM(response_tokens), 0) AS response_tokens,
+      COALESCE(SUM(full_files_tokens), 0) AS full_files_tokens,
+      COALESCE(SUM(saved_tokens), 0) AS saved_tokens
+    FROM mcp_usage
+    GROUP BY project_path
+    ORDER BY saved_tokens DESC
+  `).all() as Array<{
+    project_path: string;
+    calls: number;
+    response_tokens: number;
+    full_files_tokens: number;
+    saved_tokens: number;
+  }>;
+
+  const byProject: Record<string, UsageSummary> = {};
+  for (const row of projectRows) {
+    const fullTokens = Number(row.full_files_tokens);
+    const saved = Number(row.saved_tokens);
+    byProject[row.project_path] = {
+      calls: Number(row.calls),
+      responseTokens: Number(row.response_tokens),
+      fullFilesTokens: fullTokens,
+      savedTokens: saved,
+      savingsPercent: fullTokens > 0 ? Math.round((saved / fullTokens) * 1000) / 10 : 0,
+    };
+  }
+
+  return {
+    global: globalSummary,
+    byProject,
+  };
 }

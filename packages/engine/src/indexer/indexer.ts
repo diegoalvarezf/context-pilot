@@ -34,6 +34,15 @@ const IGNORE_DIRS = new Set([
 ]);
 
 const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css", ".swift", ".cs"]);
+const MAX_FILE_BYTES = 512 * 1024;
+
+function isWithinSizeLimit(absPath: string): boolean {
+  try {
+    return statSync(absPath).size <= MAX_FILE_BYTES;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Stable id for a project root. The same folder must map to the same id however
@@ -61,7 +70,7 @@ function gitFiles(dir: string): string[] | null {
     .split("\0")
     .filter((f) => f && SUPPORTED_EXTS.has(extname(f).toLowerCase()))
     .filter((f) => !f.split("/").some((part) => IGNORE_DIRS.has(part) || (part.startsWith(".") && part !== ".github")))
-    .map((f) => join(dir, f));
+    .map((f) => join(dir, f)).filter(isWithinSizeLimit);
 }
 
 function collectFiles(dir: string): string[] {
@@ -84,7 +93,7 @@ function collectFiles(dir: string): string[] {
       try { stat = statSync(full); } catch { continue; }
       if (stat.isDirectory()) {
         walk(full);
-      } else if (SUPPORTED_EXTS.has(extname(full).toLowerCase())) {
+      } else if (stat.size <= MAX_FILE_BYTES && SUPPORTED_EXTS.has(extname(full).toLowerCase())) {
         files.push(full);
       }
     }

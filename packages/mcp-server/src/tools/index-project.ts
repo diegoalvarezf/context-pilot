@@ -3,6 +3,7 @@ import type { IContextEngine } from "context-pilot-engine";
 
 export const indexProjectSchema = z.object({
   force: z.boolean().optional().default(false).describe("Force full re-index and re-mine git history"),
+  path: z.string().optional().describe("Optional project root path on disk; defaults to the server working directory"),
 });
 
 export type IndexProjectInput = z.infer<typeof indexProjectSchema>;

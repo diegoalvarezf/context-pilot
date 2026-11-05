@@ -8,6 +8,7 @@ export const impactOfSchema = z.object({
     .describe("Files you are changing or about to change (relative to project root, or absolute)"),
   limit: z.number().optional().default(10).describe("Max files to return"),
   depth: z.number().optional().default(2).describe("Import hops to follow for dependents"),
+  path: z.string().optional().describe("Optional project root path on disk; defaults to the server working directory"),
 });
 
 export type ImpactOfInput = z.infer<typeof impactOfSchema>;

@@ -125,6 +125,21 @@ describe("search", () => {
     expect(hits[0].symbols).toEqual(expect.arrayContaining(["backoffDelay", "fetchWithRetry"]));
     expect(hits.find((h) => h.path === "src/user.ts")).toBeUndefined();
   });
+
+  it("matches Spanish task terms to English symbols via synonyms and accent normalization", () => {
+    const symbols = [
+      { path: "src/retry.ts", name: "retryRequest", kind: "function", startLine: 1 },
+      { path: "src/http.ts", name: "parseHeaders", kind: "function", startLine: 10 },
+      { path: "src/user.ts", name: "loadUser", kind: "function", startLine: 1 },
+    ];
+    const paths = ["src/retry.ts", "src/http.ts", "src/user.ts"];
+    const hits = searchFiles("el reintento debe respetar la cabecera", symbols, paths);
+    expect(hits.length).toBeGreaterThan(0);
+    const hitPaths = hits.map((h) => h.path);
+    expect(hitPaths).toContain("src/retry.ts");
+    expect(hitPaths).toContain("src/http.ts");
+    expect(hits[0].terms).toEqual(expect.arrayContaining(["retry"]));
+  });
 });
 
 describe("pilot, outline and findSymbol", () => {

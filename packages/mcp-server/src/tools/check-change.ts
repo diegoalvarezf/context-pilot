@@ -9,6 +9,7 @@ export const checkChangeSchema = z.object({
     .describe("Compare against the merge-base with this ref (e.g. main) to check a whole branch"),
   min_score: z.number().optional().default(DEFAULT_CHECK_MIN_SCORE).describe("Only report files whose strongest single signal reaches this (0-1)"),
   limit: z.number().optional().default(10).describe("Max files to return"),
+  path: z.string().optional().describe("Optional project root path on disk; defaults to the server working directory"),
 });
 
 export type CheckChangeInput = z.infer<typeof checkChangeSchema>;

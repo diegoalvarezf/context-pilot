@@ -59,4 +59,7 @@ export type {
   Chunk,
   GraphNode,
   GraphEdge,
+  RecordUsageParams,
+  UsageStats,
+  UsageSummary,
 } from "./types.js";

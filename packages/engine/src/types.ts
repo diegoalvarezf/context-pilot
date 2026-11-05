@@ -175,6 +175,28 @@ export interface FindSymbolResponse {
   totalUses: number;
 }
 
+export interface UsageSummary {
+  calls: number;
+  responseTokens: number;
+  fullFilesTokens: number;
+  savedTokens: number;
+  savingsPercent: number;
+}
+
+export interface UsageStats {
+  global: UsageSummary;
+  byProject: Record<string, UsageSummary>;
+}
+
+export interface RecordUsageParams {
+  createdAt?: number;
+  projectPath: string;
+  tool: string;
+  responseTokens: number;
+  fullFilesTokens: number;
+  savedTokens: number;
+}
+
 export interface IContextEngine {
   init(): Promise<void>;
   index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
@@ -196,5 +218,7 @@ export interface IContextEngine {
     depth?: number;
     direction?: string;
   }): Promise<SubgraphResult>;
+  recordUsage(params: RecordUsageParams): void;
+  getUsageStats(params?: { projectPath?: string }): UsageStats;
   close(): void;
 }

@@ -18,6 +18,7 @@ import { findCommand } from "./commands/find.js";
 import { outlineCommand } from "./commands/outline.js";
 import { benchCommand } from "./commands/bench.js";
 import { onCommand } from "./commands/on.js";
+import { statsCommand } from "./commands/stats.js";
 
 const program = new Command();
 
@@ -29,6 +30,7 @@ program
 program.addCommand(setupCommand);
 program.addCommand(initCommand);
 program.addCommand(statusCommand);
+program.addCommand(statsCommand);
 program.addCommand(serveCommand);
 program.addCommand(indexCommand);
 program.addCommand(pilotCommand);

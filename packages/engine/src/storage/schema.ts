@@ -114,5 +114,17 @@ export function applySchema(db: DatabaseSync): void {
       commits_skipped   INTEGER NOT NULL,
       mined_at          INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS mcp_usage (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at        INTEGER NOT NULL,
+      project_path      TEXT NOT NULL,
+      tool              TEXT NOT NULL,
+      response_tokens   INTEGER NOT NULL,
+      full_files_tokens INTEGER NOT NULL,
+      saved_tokens      INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_usage_project ON mcp_usage(project_path);
   `);
 }
