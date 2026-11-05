@@ -157,7 +157,7 @@ export const onCommand = new Command("on")
         // Most tool calls a search hook sees aren't symbol searches (any Bash command, a regex):
         // leave at once, without git, the engine or a trace line
         if (event === "search" && !searchedName(input)) return;
-        root = options.project ? resolve(options.project) : gitRoot(input.cwd ?? process.cwd());
+        root = options.project ? resolve(options.project) : gitRoot((editedFiles(input)[0] && isAbsolute(editedFiles(input)[0]) ? resolve(editedFiles(input)[0], "..") : null) ?? input.cwd ?? process.cwd());
         if (!root || !existsSync(join(root, ".git"))) outcome = silent("not a git repository");
         else {
           outcome = await respond(event as HookEvent, input, root);
