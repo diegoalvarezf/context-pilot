@@ -59,7 +59,7 @@ export function parseHookInput(raw: string): HookInput {
   };
 }
 
-const PATH_KEYS = ["file_path", "notebook_path", "path", "target_file", "filePath", "filename", "absolute_path"];
+const PATH_KEYS = ["file_path", "notebook_path", "path", "Path", "target_file", "filePath", "filename", "absolute_path"];
 
 /** Files a tool call edited: a path field, or the files named in an apply_patch (Codex) patch. */
 export function editedFiles(input: HookInput): string[] {
