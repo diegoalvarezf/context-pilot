@@ -21,6 +21,10 @@ import type {
   RecordUsageParams,
   UsageStats,
   UsageSummary,
+  HandoffState,
+  SetHandoffParams,
+  GetHandoffParams,
+  GetHandoffResult,
 } from "./types.js";
 import {
   openDatabase,
@@ -40,6 +44,9 @@ import {
   type SymbolRow,
   recordMcpUsage,
   getMcpUsageStats,
+  setHandoff,
+  getHandoff,
+  clearHandoff,
 } from "./storage/sqlite.js";
 import { searchFiles } from "./pilot/search.js";
 import { DEFAULT_PILOT_BUDGET, pilot, type OutlineSymbol } from "./pilot/pilot.js";
@@ -55,7 +62,7 @@ import {
   DEFAULT_MIN_CONFIDENCE,
   DEFAULT_MIN_SUPPORT,
 } from "./history/cochange.js";
-import { isGitRepo } from "./history/git.js";
+import { isGitRepo, runGit } from "./history/git.js";
 import { readWorkingChanges } from "./history/diff.js";
 
 const DEFAULT_COCHANGE_LIMIT = 10;
@@ -397,6 +404,67 @@ export class ContextEngine implements IContextEngine {
 
   getUsageStats(params?: { projectPath?: string }): UsageStats {
     return getMcpUsageStats(this.db, params?.projectPath);
+  }
+
+  setHandoff(params: SetHandoffParams): HandoffState {
+    const pid = projectId(params.projectPath);
+    const active = (params.activeFiles ?? []).map((f) => toProjectPath(params.projectPath, f));
+    const updatedAt = params.updatedAt ?? new Date().toISOString();
+    setHandoff(this.db, pid, params.summary, active, params.nextSteps, params.agent, updatedAt);
+    return {
+      summary: params.summary,
+      activeFiles: active,
+      nextSteps: params.nextSteps,
+      agent: params.agent,
+      updatedAt,
+    };
+  }
+
+  getHandoffRecord(params: GetHandoffParams): HandoffState | null {
+    const pid = projectId(params.projectPath);
+    const row = getHandoff(this.db, pid);
+    if (!row) return null;
+    let activeFiles: string[] = [];
+    try {
+      activeFiles = JSON.parse(row.active_files) as string[];
+    } catch {
+      activeFiles = [];
+    }
+    return {
+      summary: row.summary,
+      activeFiles,
+      nextSteps: row.next_steps ?? undefined,
+      agent: row.agent ?? undefined,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async getHandoff(params: GetHandoffParams): Promise<GetHandoffResult> {
+    const handoff = this.getHandoffRecord(params);
+    if (!handoff) return { handoff: null };
+
+    let gitStatus: string | undefined;
+    try {
+      if (await isGitRepo(params.projectPath)) {
+        const args = ["status", "--short"];
+        if (handoff.activeFiles && handoff.activeFiles.length > 0) {
+          args.push("--", ...handoff.activeFiles);
+        }
+        const r = await runGit(params.projectPath, args);
+        if (r.code === 0 && r.stdout.trim().length > 0) {
+          gitStatus = r.stdout.trim();
+        }
+      }
+    } catch {
+      // Ignore git errors
+    }
+
+    return { handoff, gitStatus };
+  }
+
+  clearHandoff(params: { projectPath: string }): boolean {
+    const pid = projectId(params.projectPath);
+    return clearHandoff(this.db, pid);
   }
 
   close(): void {

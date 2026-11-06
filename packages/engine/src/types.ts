@@ -199,6 +199,32 @@ export interface RecordUsageParams {
   savedTokens: number;
 }
 
+export interface HandoffState {
+  summary: string;
+  activeFiles: string[];
+  nextSteps?: string;
+  agent?: string;
+  updatedAt: string;
+}
+
+export interface SetHandoffParams {
+  projectPath: string;
+  summary: string;
+  activeFiles?: string[];
+  nextSteps?: string;
+  agent?: string;
+  updatedAt?: string;
+}
+
+export interface GetHandoffParams {
+  projectPath: string;
+}
+
+export interface GetHandoffResult {
+  handoff: HandoffState | null;
+  gitStatus?: string;
+}
+
 export interface IContextEngine {
   init(): Promise<void>;
   index(params: { projectPath: string; force?: boolean; paths?: string[] }): Promise<IndexResult>;
@@ -222,5 +248,9 @@ export interface IContextEngine {
   }): Promise<SubgraphResult>;
   recordUsage(params: RecordUsageParams): void;
   getUsageStats(params?: { projectPath?: string }): UsageStats;
+  setHandoff(params: SetHandoffParams): HandoffState;
+  getHandoff(params: GetHandoffParams): Promise<GetHandoffResult>;
+  getHandoffRecord(params: GetHandoffParams): HandoffState | null;
+  clearHandoff(params: { projectPath: string }): boolean;
   close(): void;
 }

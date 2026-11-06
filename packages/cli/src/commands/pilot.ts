@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { resolve } from "path";
 import chalk from "chalk";
-import { ContextEngine } from "context-pilot-engine";
+import { ContextEngine, formatHandoffHeader, isRecentHandoff } from "context-pilot-engine";
 
 export const pilotCommand = new Command("pilot")
   .description("Map a task to the code that matters: files, functions with line ranges, related files and tests")
@@ -21,9 +21,16 @@ export const pilotCommand = new Command("pilot")
         files: options.files?.map((f) => resolve(f)),
         budget: parseInt(options.budget, 10),
       });
+
+      const handoff = engine.getHandoffRecord({ projectPath: root });
+      const recentHandoff = handoff && isRecentHandoff(handoff) ? handoff : null;
+
       if (options.json) {
-        console.log(JSON.stringify(r, null, 2));
+        console.log(JSON.stringify({ ...r, handoff: recentHandoff }, null, 2));
         return;
+      }
+      if (recentHandoff) {
+        console.log(chalk.cyan(formatHandoffHeader(recentHandoff)) + "\n");
       }
       if (r.files.length === 0) {
         console.log(chalk.dim("Nothing in the index matches this task."));

@@ -1,12 +1,14 @@
 import { Command } from "commander";
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
 import {
   ContextEngine,
   DEFAULT_CHECK_MIN_SCORE,
   formatFindSymbol,
+  formatHandoffHeader,
+  isRecentHandoff,
   mapForPrompt,
   toProjectPath,
 } from "context-pilot-engine";
@@ -30,9 +32,21 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function normalizePath(p: string): string {
+  try {
+    return realpathSync.native ? realpathSync.native(p) : realpathSync(p);
+  } catch {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  }
+}
+
 function gitRoot(dir: string): string | null {
   const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, encoding: "utf8" });
-  return r.status === 0 ? r.stdout.trim() : null;
+  return r.status === 0 ? normalizePath(r.stdout.trim()) : null;
 }
 
 // Per agent session: what we already said, so nothing is repeated
@@ -68,8 +82,12 @@ function sessionEdits(input: HookInput, root: string, state: SessionState): stri
     // no transcript: the edit hook may still know
   }
   if (calls.length === 0 && state.edited.length === 0) return null;
+  const normRoot = normalizePath(root);
   const inProject = editedPaths(calls)
-    .map((f) => relative(root, isAbsolute(f) ? f : resolve(input.cwd ?? root, f)))
+    .map((f) => {
+      const abs = isAbsolute(f) ? f : resolve(input.cwd ?? root, f);
+      return relative(normRoot, normalizePath(abs));
+    })
     .filter((f) => !f.startsWith(".."))
     .map((f) => toProjectPath(root, f));
   return [...new Set([...state.edited, ...inProject])];
@@ -129,8 +147,10 @@ export async function respond(event: HookEvent, input: HookInput, root: string):
       if (!r.map) return silent(r.reason ?? "no map", { confidence: r.confidence });
       const files = r.map.files.map((f) => f.path);
       saveState(input.sessionId, { ...state, hinted: [...new Set([...state.hinted, ...files])] });
+      const handoff = engine.getHandoffRecord({ projectPath: root });
+      const header = handoff && isRecentHandoff(handoff) ? `${formatHandoffHeader(handoff)}\n\n` : "";
       return {
-        text: `${r.map.text}\n(context-pilot: from the code index and git history. Tools: pilot, find_symbol, outline.)`,
+        text: `${header}${r.map.text}\n(context-pilot: from the code index and git history. Tools: pilot, find_symbol, outline.)`,
         confidence: r.map.confidence,
         files,
       };

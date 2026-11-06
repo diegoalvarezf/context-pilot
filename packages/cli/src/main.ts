@@ -19,6 +19,7 @@ import { outlineCommand } from "./commands/outline.js";
 import { benchCommand } from "./commands/bench.js";
 import { onCommand } from "./commands/on.js";
 import { statsCommand } from "./commands/stats.js";
+import { handoffCommand } from "./commands/handoff.js";
 
 const program = new Command();
 
@@ -46,5 +47,6 @@ program.addCommand(benchCommand);
 program.addCommand(onCommand);
 program.addCommand(traceCommand);
 program.addCommand(doctorCommand);
+program.addCommand(handoffCommand);
 
 program.parse();

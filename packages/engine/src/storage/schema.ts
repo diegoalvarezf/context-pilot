@@ -126,5 +126,14 @@ export function applySchema(db: DatabaseSync): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_mcp_usage_project ON mcp_usage(project_path);
+
+    CREATE TABLE IF NOT EXISTS handoffs (
+      project_id   TEXT PRIMARY KEY,
+      summary      TEXT NOT NULL,
+      active_files TEXT NOT NULL,
+      next_steps   TEXT,
+      agent        TEXT,
+      updated_at   TEXT NOT NULL
+    );
   `);
 }

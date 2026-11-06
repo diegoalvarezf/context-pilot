@@ -11,6 +11,7 @@ import { pilotSchema, handlePilot } from "./tools/pilot.js";
 import { findSymbolSchema, handleFindSymbol } from "./tools/find-symbol.js";
 import { outlineSchema, handleOutline } from "./tools/outline.js";
 import { usageStatsSchema, handleUsageStats } from "./tools/usage-stats.js";
+import { handoffSchema, handleHandoff } from "./tools/handoff.js";
 
 function recordTelemetry(
   engine: IContextEngine,
@@ -193,6 +194,18 @@ export function createServer(engine: IContextEngine, projectPath: string): McpSe
     async ({ path }) => {
       const targetPath = path ?? projectPath;
       const result = await handleUsageStats({ path }, engine, targetPath);
+      return { content: [{ type: "text", text: result }] };
+    }
+  );
+
+  server.tool(
+    "handoff",
+    "Cross-session handoff: get or set the current task summary, active files, and next steps across agents (Antigravity, Claude Code, etc.).",
+    handoffSchema.shape,
+    async ({ action, summary, activeFiles, nextSteps, agent, path }) => {
+      const targetPath = path ?? projectPath;
+      const result = await handleHandoff({ action, summary, activeFiles, nextSteps, agent, path }, engine, targetPath);
+      recordTelemetry(engine, targetPath, "handoff", result, activeFiles);
       return { content: [{ type: "text", text: result }] };
     }
   );

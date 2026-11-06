@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { editedPaths, readTrace, toolCallsOf } from "../src/trace.js";
 
 const cli = join(__dirname, "..", "dist", "index.js");
-const temp = (name: string) => realpathSync(mkdtempSync(join(tmpdir(), name)));
+const temp = (name: string) => (realpathSync.native ? realpathSync.native(mkdtempSync(join(tmpdir(), name))) : realpathSync(mkdtempSync(join(tmpdir(), name))));
 
 let repo: string;
 let home: string;

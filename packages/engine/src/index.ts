@@ -31,6 +31,7 @@ export type {
   CalibrationReport,
   CalibrationThreshold,
 } from "./history/backtest.js";
+export { isRecentHandoff, formatHandoffHeader } from "./handoff.js";
 export type {
   IContextEngine,
   PilotQuery,
@@ -62,4 +63,8 @@ export type {
   RecordUsageParams,
   UsageStats,
   UsageSummary,
+  HandoffState,
+  SetHandoffParams,
+  GetHandoffParams,
+  GetHandoffResult,
 } from "./types.js";

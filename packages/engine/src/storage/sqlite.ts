@@ -464,3 +464,48 @@ export function getMcpUsageStats(db: DatabaseSync, filterProjectPath?: string): 
     byProject,
   };
 }
+
+// ── Handoff ───────────────────────────────────────────────────────────────────
+
+export interface HandoffRow {
+  project_id: string;
+  summary: string;
+  active_files: string;
+  next_steps: string | null;
+  agent: string | null;
+  updated_at: string;
+}
+
+export function setHandoff(
+  db: DatabaseSync,
+  projectId: string,
+  summary: string,
+  activeFiles: string[],
+  nextSteps?: string,
+  agent?: string,
+  updatedAt?: string
+): void {
+  const ts = updatedAt ?? new Date().toISOString();
+  db.prepare(`
+    INSERT INTO handoffs (project_id, summary, active_files, next_steps, agent, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id) DO UPDATE SET
+      summary = excluded.summary,
+      active_files = excluded.active_files,
+      next_steps = excluded.next_steps,
+      agent = excluded.agent,
+      updated_at = excluded.updated_at
+  `).run(projectId, summary, JSON.stringify(activeFiles), nextSteps ?? null, agent ?? null, ts);
+}
+
+export function getHandoff(db: DatabaseSync, projectId: string): HandoffRow | undefined {
+  return db.prepare(`SELECT * FROM handoffs WHERE project_id = ?`).get(projectId) as HandoffRow | undefined;
+}
+
+export function clearHandoff(db: DatabaseSync, projectId: string): boolean {
+  const info = db.prepare(`DELETE FROM handoffs WHERE project_id = ?`).run(projectId);
+  return (info as { changes?: number }).changes !== undefined
+    ? ((info as { changes: number }).changes > 0)
+    : true;
+}
+
