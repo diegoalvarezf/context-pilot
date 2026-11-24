@@ -101,6 +101,13 @@ Noise is filtered out: merge commits, bulk commits (more than 30 files), lockfil
 Renames are followed. Only what git tracks is indexed (`.gitignore` is respected). Nothing leaves your machine:
 no embeddings, no model download, no API calls.
 
+**Folders without git** (a synced drive, an export) work once they are indexed, with `context-pilot index` or the
+`index_project` tool: the hooks recognise the innermost indexed project around the session's folder. The map, the
+answer before a grep and the import graph work there. What comes from git history does not: files that change
+together, and the forgotten-files check when the agent finishes. Every supported source file up to 512 KB is
+indexed, skipping hidden folders. Walking a folder is too slow to make a prompt wait, so the index is refreshed in
+the background, at most every 30 minutes.
+
 ---
 
 ## Quick start
