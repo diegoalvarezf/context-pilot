@@ -146,7 +146,7 @@ describe("`on` writes the trace", () => {
     const text = readFileSync(join(home, "trace.jsonl"), "utf8");
     expect(text).not.toContain("secret");
     const [record] = parseTrace(text);
-    expect(record).toMatchObject({ event: "prompt", result: "skipped", reason: "not a git repository", session: "abc", transcript: "/t.jsonl" });
+    expect(record).toMatchObject({ event: "prompt", result: "skipped", reason: "not a git repository or an indexed project", session: "abc", transcript: "/t.jsonl" });
     expect(record.prompt).toEqual({ length: 25, hash: promptHash("a secret task description") });
   });
 

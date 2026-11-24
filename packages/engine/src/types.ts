@@ -234,6 +234,8 @@ export interface IContextEngine {
   checkChange(params: CheckQuery): Promise<CheckResponse>;
   /** Index and mine history if they're missing or older than maxAgeMs (default 5 min): cheap when nothing changed */
   ensureFresh(params: { projectPath: string; maxAgeMs?: number }): Promise<void>;
+  /** Root of the indexed project this path is in (the innermost one), or null: how a folder without git is recognised */
+  projectRootFor(path: string): string | null;
   pilot(params: PilotQuery): PilotResult;
   outline(params: { projectPath: string; file: string }): OutlineResponse;
   findSymbol(params: { projectPath: string; name: string; limit?: number }): FindSymbolResponse;

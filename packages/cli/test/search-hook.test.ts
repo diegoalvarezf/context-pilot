@@ -46,6 +46,6 @@ describe("search hook", () => {
     const input = { session_id: "s", cwd: mkdtempSync(join(tmpdir(), "cp-norepo-")), tool_name: "Grep", tool_input: { pattern: "fetchWithRetry" } };
     expect(searchedName(parseHookInput(JSON.stringify(input)))).toBe("fetchWithRetry");
     expect(run(input, home).status).toBe(0);
-    expect(JSON.parse(readFileSync(join(home, "trace.jsonl"), "utf8"))).toMatchObject({ event: "search", result: "skipped", reason: "not a git repository" });
+    expect(JSON.parse(readFileSync(join(home, "trace.jsonl"), "utf8"))).toMatchObject({ event: "search", result: "skipped", reason: "not a git repository or an indexed project" });
   });
 });

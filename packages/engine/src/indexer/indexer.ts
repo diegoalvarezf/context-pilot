@@ -49,9 +49,13 @@ function isWithinSizeLimit(absPath: string): boolean {
  * it is spelled: "C:\repo", "C:/repo/" and "c:\repo" are one project on Windows.
  */
 export function projectId(rootPath: string): string {
-  let key = resolve(rootPath).split(sep).join("/").replace(/\/+$/, "");
-  if (process.platform === "win32") key = key.toLowerCase();
-  return uuidv5(key, UUID_NAMESPACE);
+  return uuidv5(pathKey(rootPath), UUID_NAMESPACE);
+}
+
+/** One spelling per folder: absolute, forward slashes, no trailing slash, lowercase on Windows. */
+export function pathKey(path: string): string {
+  const key = resolve(path).split(sep).join("/").replace(/\/+$/, "");
+  return process.platform === "win32" ? key.toLowerCase() : key;
 }
 
 function hashFile(content: string): string {

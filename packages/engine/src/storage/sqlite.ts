@@ -53,6 +53,17 @@ export function getProject(
     .get(projectId) as { root_path: string; indexed_at: number | null } | undefined;
 }
 
+/** Roots of the projects that were indexed and hold at least one file. */
+export function getIndexedProjectRoots(db: DatabaseSync): string[] {
+  const rows = db
+    .prepare(
+      `SELECT root_path FROM projects p
+       WHERE indexed_at IS NOT NULL AND EXISTS (SELECT 1 FROM files f WHERE f.project_id = p.id)`
+    )
+    .all() as Array<{ root_path: string }>;
+  return rows.map((r) => r.root_path);
+}
+
 // ── Files ─────────────────────────────────────────────────────────────────────
 
 export function upsertFile(

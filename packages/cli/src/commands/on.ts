@@ -1,6 +1,7 @@
 import { Command } from "commander";
-import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { spawn, spawnSync } from "child_process";
+import { createHash } from "crypto";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
 import {
@@ -25,6 +26,8 @@ import { CLI_VERSION } from "../version.js";
 /** Hooks re-index at most this often; the index answers from what it has in between */
 const HOOK_FRESH_MS = 30 * 60_000;
 
+export const NOT_A_PROJECT = "not a git repository or an indexed project";
+
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
   const chunks: Buffer[] = [];
@@ -47,6 +50,20 @@ function normalizePath(p: string): string {
 function gitRoot(dir: string): string | null {
   const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, encoding: "utf8" });
   return r.status === 0 ? normalizePath(r.stdout.trim()) : null;
+}
+
+/** A folder without git is still a project once it has been indexed (`index_project`): synced folders, exports. */
+function indexedRoot(dir: string): string | null {
+  let engine: ContextEngine | null = null;
+  try {
+    engine = new ContextEngine();
+    const root = engine.projectRootFor(dir);
+    return root ? normalizePath(root) : null;
+  } catch {
+    return null;
+  } finally {
+    engine?.close();
+  }
 }
 
 // Per agent session: what we already said, so nothing is repeated
@@ -91,6 +108,28 @@ function sessionEdits(input: HookInput, root: string, state: SessionState): stri
     .filter((f) => !f.startsWith(".."))
     .map((f) => toProjectPath(root, f));
   return [...new Set([...state.edited, ...inProject])];
+}
+
+/**
+ * Without git every file in the folder has to be visited to see what changed, which can take
+ * half a minute on a synced drive: the prompt does not wait for it. The index is refreshed in the
+ * background, at most once per HOOK_FRESH_MS, and this call answers from what is already there.
+ */
+function refreshInBackground(root: string): void {
+  try {
+    mkdirSync(stateDir, { recursive: true });
+    const key = createHash("sha1").update(root.toLowerCase()).digest("hex").slice(0, 16);
+    const lock = join(stateDir, `reindex-${key}.lock`);
+    try {
+      if (Date.now() - statSync(lock).mtimeMs < HOOK_FRESH_MS) return;
+    } catch {
+      // never refreshed from a hook
+    }
+    writeFileSync(lock, String(Date.now()));
+    spawn(process.execPath, [resolve(process.argv[1]), "index", root], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  } catch {
+    // a stale index still answers
+  }
 }
 
 /** What the hook decided: the text for the agent (or null) and why, for the trace. */
@@ -139,7 +178,8 @@ export async function respond(event: HookEvent, input: HookInput, root: string):
       };
     }
 
-    await engine.ensureFresh({ projectPath: root, maxAgeMs: HOOK_FRESH_MS });
+    if (existsSync(join(root, ".git"))) await engine.ensureFresh({ projectPath: root, maxAgeMs: HOOK_FRESH_MS });
+    else refreshInBackground(root);
     const state = loadState(input.sessionId);
 
     if (event === "prompt") {
@@ -211,8 +251,10 @@ export const onCommand = new Command("on")
         // Most tool calls a search hook sees aren't symbol searches (any Bash command, a regex):
         // leave at once, without git, the engine or a trace line
         if (event === "search" && !searchedName(input)) return;
-        root = options.project ? resolve(options.project) : gitRoot((editedFiles(input)[0] && isAbsolute(editedFiles(input)[0]) ? resolve(editedFiles(input)[0], "..") : null) ?? input.cwd ?? process.cwd());
-        if (!root || !existsSync(join(root, ".git"))) outcome = silent("not a git repository");
+        const edited = editedFiles(input)[0];
+        const start = (edited && isAbsolute(edited) ? resolve(edited, "..") : null) ?? input.cwd ?? process.cwd();
+        root = options.project ? resolve(options.project) : (gitRoot(start) ?? indexedRoot(start));
+        if (!root || !(existsSync(join(root, ".git")) || indexedRoot(root))) outcome = silent(NOT_A_PROJECT);
         else {
           outcome = await respond(event as HookEvent, input, root);
           result = outcome.text ? "said" : "silent";

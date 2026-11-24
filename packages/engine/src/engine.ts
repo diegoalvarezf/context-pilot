@@ -37,6 +37,7 @@ import {
   getFileImports,
   getIndexedPaths,
   getProject,
+  getIndexedProjectRoots,
   getFileSymbols,
   getProjectSymbols,
   findSymbolDefs,
@@ -52,7 +53,7 @@ import { searchFiles } from "./pilot/search.js";
 import { DEFAULT_PILOT_BUDGET, pilot, type OutlineSymbol } from "./pilot/pilot.js";
 import { computeImpact, DEFAULT_IMPACT_DEPTH } from "./impact/impact.js";
 import { initTreeSitter } from "./indexer/languages.js";
-import { indexProject, indexSpecificFiles, projectId } from "./indexer/indexer.js";
+import { indexProject, indexSpecificFiles, pathKey, projectId } from "./indexer/indexer.js";
 import { DiGraph } from "./graph/graph.js";
 import { mineHistory } from "./history/miner.js";
 import {
@@ -234,6 +235,18 @@ export class ContextEngine implements IContextEngine {
     const age = project?.indexed_at ? Date.now() - project.indexed_at : Infinity;
     if (age > (params.maxAgeMs ?? DEFAULT_FRESH_MS)) await this.index({ projectPath: params.projectPath });
     else await this.mineHistory({ projectPath: params.projectPath });
+  }
+
+  projectRootFor(path: string): string | null {
+    const key = pathKey(path);
+    let best: string | null = null;
+    for (const root of getIndexedProjectRoots(this.db)) {
+      const rootKey = pathKey(root);
+      if (key !== rootKey && !key.startsWith(rootKey + "/")) continue;
+      if (best && pathKey(best).length >= rootKey.length) continue;
+      if (existsSync(root)) best = root;
+    }
+    return best;
   }
 
   pilot(params: PilotQuery): PilotResult {
