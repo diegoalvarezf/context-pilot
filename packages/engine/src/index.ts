@@ -68,3 +68,4 @@ export type {
   GetHandoffParams,
   GetHandoffResult,
 } from "./types.js";
+export { isIgnoredPath, loadIgnoredPaths, looksMinified } from "./indexer/ignore.js";

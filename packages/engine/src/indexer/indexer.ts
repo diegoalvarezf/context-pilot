@@ -10,6 +10,7 @@ import type { GraphEdge } from "../types.js";
 import { loadLanguage, getLanguageForFile, initTreeSitter } from "./languages.js";
 import { extractImports } from "./chunker.js";
 import { parseFile, parseInChild, parsesOutOfProcess, type ParsedFile } from "./parse.js";
+import { isIgnoredDirName, isIgnoredPath, isMinifiedFile, loadIgnoredPaths } from "./ignore.js";
 import { ImportResolver, resolveFileImports, type ImportEdge } from "./imports.js";
 import {
   upsertFile,
@@ -28,17 +29,13 @@ import {
 
 const UUID_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"; // UUID v5 URL namespace
 
-const IGNORE_DIRS = new Set([
-  "node_modules", ".git", "__pycache__", "dist", "build", ".context-pilot",
-  ".next", "coverage", ".venv", "venv", ".env",
-]);
-
 const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css", ".swift", ".cs"]);
 const MAX_FILE_BYTES = 512 * 1024;
 
 function isWithinSizeLimit(absPath: string): boolean {
   try {
-    return statSync(absPath).size <= MAX_FILE_BYTES;
+    const size = statSync(absPath).size;
+    return size <= MAX_FILE_BYTES && !isMinifiedFile(absPath, size);
   } catch {
     return false;
   }
@@ -63,7 +60,7 @@ function hashFile(content: string): string {
 }
 
 /** Files git tracks or would track (respects .gitignore, skips worktrees); null outside a repo. */
-function gitFiles(dir: string): string[] | null {
+function gitFiles(dir: string, extra: string[]): string[] | null {
   const r = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
     cwd: dir,
     encoding: "utf8",
@@ -73,12 +70,13 @@ function gitFiles(dir: string): string[] | null {
   return r.stdout
     .split("\0")
     .filter((f) => f && SUPPORTED_EXTS.has(extname(f).toLowerCase()))
-    .filter((f) => !f.split("/").some((part) => IGNORE_DIRS.has(part) || (part.startsWith(".") && part !== ".github")))
+    .filter((f) => !f.split("/").some((part) => part.startsWith(".") && part !== ".github") && !isIgnoredPath(f, { extra }))
     .map((f) => join(dir, f)).filter(isWithinSizeLimit);
 }
 
 function collectFiles(dir: string): string[] {
-  const tracked = gitFiles(dir);
+  const extra = loadIgnoredPaths(dir);
+  const tracked = gitFiles(dir, extra);
   if (tracked) return tracked;
   const files: string[] = [];
 
@@ -91,13 +89,14 @@ function collectFiles(dir: string): string[] {
     }
     for (const entry of entries) {
       // Hidden folders hold tooling, caches and agent worktrees (copies of the repo)
-      if (IGNORE_DIRS.has(entry) || (entry.startsWith(".") && entry !== ".github")) continue;
+      if (isIgnoredDirName(entry) || (entry.startsWith(".") && entry !== ".github")) continue;
       const full = join(current, entry);
+      if (isIgnoredPath(toRel(dir, full), { extra })) continue;
       let stat;
       try { stat = statSync(full); } catch { continue; }
       if (stat.isDirectory()) {
         walk(full);
-      } else if (stat.size <= MAX_FILE_BYTES && SUPPORTED_EXTS.has(extname(full).toLowerCase())) {
+      } else if (stat.size <= MAX_FILE_BYTES && SUPPORTED_EXTS.has(extname(full).toLowerCase()) && !isMinifiedFile(full, stat.size)) {
         files.push(full);
       }
     }

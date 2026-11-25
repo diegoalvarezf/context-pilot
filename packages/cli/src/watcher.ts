@@ -1,18 +1,22 @@
 import { watch } from "chokidar";
-import { resolve } from "path";
-import type { IContextEngine } from "context-pilot-engine";
+import { relative, resolve, sep } from "path";
+import { isIgnoredPath, loadIgnoredPaths, type IContextEngine } from "context-pilot-engine";
 
 const DEBOUNCE_MS = 1500;
 const SUPPORTED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".php", ".html", ".htm", ".css", ".swift", ".cs"]);
-const IGNORED = /node_modules|\.git|__pycache__|dist|build|\.context-pilot/;
 
 export function startWatcher(projectPath: string, engine: IContextEngine): void {
   const root = resolve(projectPath);
   let debounceTimer: NodeJS.Timeout | null = null;
   const changedFiles = new Set<string>();
 
+  const extra = loadIgnoredPaths(root);
   const watcher = watch(root, {
-    ignored: IGNORED,
+    // misma lista que el indexador, sobre la ruta relativa (no sobre la carpeta raíz)
+    ignored: (p: string) => {
+      const rel = relative(root, p).split(sep).join("/");
+      return rel !== "" && (/^\.git(\/|$)/.test(rel) || isIgnoredPath(rel + "/x", { extra }) || isIgnoredPath(rel, { extra }));
+    },
     persistent: true,
     ignoreInitial: true,
   });

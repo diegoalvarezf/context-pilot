@@ -42,7 +42,18 @@ describe("screenPrompt: not code tasks (real prompts)", () => {
   it("screens out the bench's negatives; the rest are left to the map's confidence", () => {
     // `bench --negatives` checks the whole decision (screening + confidence) on real repos
     const passed = negatives.filter((p) => reason(p) === null);
-    expect(passed).toEqual(["no me verbosees", "thanks, that looks good", "what did you change in the last commit?"]);
+    expect(passed).toEqual(["what did you change in the last commit?"]);
+  });
+});
+
+describe("screenPrompt: short conversation", () => {
+  it.each(["si o no", "ya la lance", "vale, déjalo así", "relanzo?", "porque opcional?", "ok perfecto, gracias"])("%s", (prompt) => {
+    expect(reason(prompt)).not.toBeNull();
+  });
+
+  it("a short sentence with a code-like term is still a task", () => {
+    expect(reason("dónde se valida la expresión cron en scheduled_tasks.php")).toBeNull();
+    expect(reason("revisa getUser")).toBeNull();
   });
 });
 
@@ -55,7 +66,7 @@ describe("screenPrompt: code tasks still get a map", () => {
     "why does fetchWithRetry throw on a 429?",
     "where is `calculateRetryDelay` defined?",
     "actualiza la página de context-pilot con la versión 0.7",
-    "Harden retry",
+    "Harden retry handling when the server throws",
   ])("%s", (prompt) => {
     const r = screenPrompt(prompt, "portfolio");
     expect(r).toEqual({ task: prompt.trim() });

@@ -29,7 +29,33 @@ const CHANGE_REQUEST =
 const ASKS_FOR_TEXT =
   /\b(dame|p[aá]same|pasa(me)?|escr[ií]be(me)?|redacta(me)?|haz(me)?|genera(me)?|prepara(me)?|resume(me)?|res[uú]meme|l[ií]stame|give me|write( me)?|draft|summari[sz]e|list)\b[^.\n]{0,50}\b(prompt|resumen|summary|mensaje|message|email|correo|texto|text|tweet|post|lista|list|hecho|done|changelog)\b/i;
 
+/** Palabras vacías de la conversación (es/en) que no dicen dónde mirar */
+const FILLER = new Set(
+  (
+    "si sí no ya la lo le les me te se nos mi tu su yo vale ok okey bien mal gracias dale venga claro perfecto listo hecho " +
+    "deja dejalo déjalo asi así bueno pues entonces ahora luego despues después antes tambien también solo sólo muy mas más " +
+    "porque porqué opcional lance lancé relanzo relanza otra otro vez eso esa ese aqui aquí alli allí " +
+    "yes yep nope okay thanks thank sure fine good great done now then also just really maybe again leave keep " +
+    "the and but for with that this it its is are was were you your our they them she him her can will"
+  ).split(" ")
+);
+/** Con un término de código (identificador, fichero, ruta) basta una frase corta; sin él hace falta contexto */
+const MIN_PLAIN_WORDS = 5;
+const MIN_PLAIN_WORDS_WITH_VERB = 3;
+
+/** Un token que parece código: snake_case, camelCase, `x`, fichero.ext, ruta/con/barras, función() */
+const CODE_TOKEN = /`[^`]+`|[A-Za-z0-9]+_[A-Za-z0-9_]+|[a-z]+[A-Z]\w*|[\w-]+\.(?:php|js|ts|tsx|jsx|py|css|html?|json|sql|md|cs|swift)|[\w.-]+\/[\w.\/-]+|\w+\(\)/;
+
+/** Palabras con contenido: ≥3 letras y no de relleno ni vacías */
+function significantWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9áéíóúñü]+/)
+    .filter((w) => w.length >= 3 && !FILLER.has(w) && !FILLER.has(fold(w)) && terms(w).length > 0);
+}
+
 export type NotATask =
+  | "conversational"
   | "prompt too short"
   | "pasted text"
   | "too long for a task"
@@ -69,6 +95,12 @@ export function screenPrompt(prompt: string, repoName: string): Screened {
     .join("")
     .trim();
   if (terms(kept).length === 0 && identifiers(kept).length === 0) return { reason: "only the repo or tool name" };
+
+  // Frase corta sin nada que parezca código: conversación, aunque alguna palabra suelta case con un símbolo
+  if (!CODE_TOKEN.test(text)) {
+    const need = CHANGE_REQUEST.test(text) ? MIN_PLAIN_WORDS_WITH_VERB : MIN_PLAIN_WORDS;
+    if (significantWords(text).length < need) return { reason: "conversational" };
+  }
   return { task: text };
 }
 
